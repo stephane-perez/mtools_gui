@@ -1,0 +1,301 @@
+#!/usr/bin/env python3
+"""Privileged helper for mtools_gui, run via `pkexec` as root.
+
+This file is installed standalone to /usr/local/libexec/mtools-gui-helper
+by `mtools-gui-install-helper` (see install_helper.py) and executed
+directly - it is NOT imported from the app's venv, so it must stay
+stdlib-only (no PySide6, no third-party packages).
+
+CLI contract: mtools-gui-helper <op> <device> [args...]
+
+Exit codes:
+  0  success - stdout is the raw passthrough of the mtools command's stdout
+  1  the underlying mtools binary itself failed - stderr passthrough raw
+  2  validation rejected the call - stderr "VALIDATION_ERROR: <reason>"
+  3  usage error - stderr "USAGE_ERROR: <reason>"
+
+Security model (see project plan for the full rationale): the polkit rule
+that allows this to run passwordlessly only ever authorizes THIS exact
+program path - never mcopy/mdir/etc. directly. On top of that, this
+script independently re-validates every call instead of trusting its
+caller:
+  - the target device must be an independently-confirmed *removable*
+    partition that isn't a kernel-recognized non-DOS filesystem, not a
+    whole disk and not an internal drive, checked two ways (lsblk AND
+    /sys/block/*/removable) - a bug or compromise in one check alone
+    must not be enough to touch the wrong device.
+  - every argument to the DOS-image-only commands must be a "::"-prefixed
+    mtools path - never a bare Unix path.
+  - mcopy is the one command that legitimately takes a real Unix-side
+    path (to copy to/from the local filesystem). That path is confined to
+    the invoking user's home directory or common removable-media mount
+    roots, so this helper can never be turned into an arbitrary-file
+    root read/write primitive by an unprivileged caller.
+
+Ownership handback: since mcopy runs as root (via pkexec), any file or
+directory it creates on the Unix side (a DOS -> local copy) would
+otherwise end up owned by root, leaving the invoking user unable to even
+delete their own copied files. After a successful mcopy, every Unix-side
+argument path is chown'd back to the invoking user (from PKEXEC_UID),
+recursively for directories - see _chown_recursive/_hand_back_ownership.
+"""
+
+from __future__ import annotations
+
+import json
+import os
+import pwd
+import subprocess
+import sys
+
+ALLOWED_OPS = {
+    "mdir": "/usr/bin/mdir",
+    "mcopy": "/usr/bin/mcopy",
+    "mdel": "/usr/bin/mdel",
+    "mdeltree": "/usr/bin/mdeltree",
+    "mmd": "/usr/bin/mmd",
+    "mmove": "/usr/bin/mmove",
+    "mren": "/usr/bin/mren",
+    "mattrib": "/usr/bin/mattrib",
+    "mrd": "/usr/bin/mrd",
+    "mtype": "/usr/bin/mtype",
+}
+
+# Filesystems the kernel positively identifies as *not* FAT-like: reject
+# only these, rather than requiring a recognized FAT fstype. A GEMDOS
+# (Atari) partition typically shows up with an empty/unrecognized fstype
+# in lsblk even though mtools reads it fine - it parses the FAT
+# structures itself, independently of the kernel's own detection. Keep
+# this set in sync with constants.NON_DOS_FSTYPES (duplicated here
+# on purpose: this file must stay stdlib-only and standalone, it is not
+# imported from the mtools_gui package).
+NON_DOS_FSTYPES = {
+    "ext2", "ext3", "ext4",
+    "btrfs", "xfs", "jfs", "reiserfs", "f2fs",
+    "ntfs", "hfs", "hfsplus", "apfs",
+    "swap", "iso9660", "udf",
+    "zfs_member", "linux_raid_member", "lvm2_member", "crypto_luks",
+}
+
+EXTRA_ALLOWED_ROOTS = ("/media", "/run/media", "/mnt")
+
+HELPER_ENV = {"LC_ALL": "C", "PATH": "/usr/bin:/bin"}
+
+
+class ValidationError(Exception):
+    pass
+
+
+class UsageError(Exception):
+    pass
+
+
+def _lsblk_row(device: str) -> dict:
+    try:
+        proc = subprocess.run(
+            [
+                "/usr/bin/lsblk",
+                "-J",
+                "-o",
+                "TYPE,PKNAME,RM,FSTYPE,MOUNTPOINT,TRAN",
+                device,
+            ],
+            capture_output=True,
+            text=True,
+            env=HELPER_ENV,
+        )
+    except FileNotFoundError as exc:
+        raise ValidationError(f"lsblk introuvable : {exc}") from exc
+    if proc.returncode != 0:
+        raise ValidationError(f"lsblk a echoue pour {device} : {proc.stderr.strip()}")
+    try:
+        data = json.loads(proc.stdout)
+        devices = data["blockdevices"]
+    except (json.JSONDecodeError, KeyError, IndexError) as exc:
+        raise ValidationError(f"sortie lsblk illisible pour {device}") from exc
+    if not devices:
+        raise ValidationError(f"{device} inconnu de lsblk")
+    return devices[0]
+
+
+def _sysfs_removable(pkname: str | None) -> bool:
+    if not pkname:
+        return False
+    path = f"/sys/block/{pkname}/removable"
+    try:
+        with open(path, "r") as f:
+            return f.read().strip() == "1"
+    except OSError:
+        return False
+
+
+def is_removable(row: dict, sysfs_read_fn=_sysfs_removable) -> bool:
+    """Two independent checks must both agree the device is removable."""
+    lsblk_says_removable = row.get("rm") is True
+    sysfs_says_removable = sysfs_read_fn(row.get("pkname"))
+    return lsblk_says_removable and sysfs_says_removable
+
+
+def validate_device(device: str) -> str:
+    """Resolves and validates the device path, returning the resolved path
+    to use for the actual mtools call. Raises ValidationError on any
+    failure - never partially trusts the input."""
+    resolved = os.path.realpath(device)
+    if not resolved.startswith("/dev/"):
+        raise ValidationError(f"{device} n'est pas un peripherique bloc")
+
+    row = _lsblk_row(resolved)
+
+    if row.get("type") != "part":
+        raise ValidationError(f"{resolved} n'est pas une partition")
+
+    if not is_removable(row):
+        raise ValidationError(f"{resolved} n'est pas identifie comme amovible")
+
+    fstype = (row.get("fstype") or "").lower()
+    if fstype in NON_DOS_FSTYPES:
+        raise ValidationError(f"{resolved} n'est pas une partition DOS (fstype={fstype!r})")
+
+    if row.get("mountpoint"):
+        raise ValidationError(f"{resolved} est deja monte par le noyau ({row['mountpoint']})")
+
+    return resolved
+
+
+def _invoking_home_dir() -> str | None:
+    uid = os.environ.get("PKEXEC_UID")
+    if uid is None:
+        return None
+    try:
+        return pwd.getpwuid(int(uid)).pw_dir
+    except (ValueError, KeyError):
+        return None
+
+
+def _invoking_identity() -> tuple[int, int] | None:
+    uid = os.environ.get("PKEXEC_UID")
+    if uid is None:
+        return None
+    try:
+        pw = pwd.getpwuid(int(uid))
+    except (ValueError, KeyError):
+        return None
+    return pw.pw_uid, pw.pw_gid
+
+
+def _chown_recursive(path: str, uid: int, gid: int) -> None:
+    try:
+        os.chown(path, uid, gid, follow_symlinks=False)
+    except OSError:
+        return
+    if os.path.isdir(path) and not os.path.islink(path):
+        for root, dirs, files in os.walk(path):
+            for name in dirs + files:
+                try:
+                    os.chown(os.path.join(root, name), uid, gid, follow_symlinks=False)
+                except OSError:
+                    pass
+
+
+def _hand_back_ownership(op: str, resolved_args: list[str]) -> None:
+    """After a successful mcopy, any Unix-side path it touched was
+    created/written as root - give it back to the invoking user so they
+    can actually manage their own copied files."""
+    if op != "mcopy":
+        return
+    identity = _invoking_identity()
+    if identity is None:
+        return
+    uid, gid = identity
+    for arg in resolved_args:
+        if arg.startswith("::"):
+            continue
+        if os.path.exists(arg):
+            _chown_recursive(arg, uid, gid)
+
+
+def is_allowed_unix_path(path: str, home_dir: str | None, extra_roots=EXTRA_ALLOWED_ROOTS) -> bool:
+    resolved = os.path.realpath(path)
+    if home_dir:
+        home_resolved = os.path.realpath(home_dir)
+        if resolved == home_resolved or resolved.startswith(home_resolved + os.sep):
+            return True
+    for root in extra_roots:
+        if resolved == root or resolved.startswith(root + os.sep):
+            return True
+    return False
+
+
+def validate_args(op: str, args: list[str], home_dir: str | None = None) -> list[str]:
+    """Returns the argument list to actually pass to the mtools binary
+    (Unix-side paths are replaced by their resolved realpath), or raises
+    ValidationError."""
+    if home_dir is None:
+        home_dir = _invoking_home_dir()
+
+    resolved_args = []
+    for arg in args:
+        if arg.startswith("::"):
+            resolved_args.append(arg)
+            continue
+        if arg.startswith("-"):
+            # No flags are expected from the GUI today; reject rather than
+            # silently pass through something unvalidated.
+            raise ValidationError(f"argument non reconnu : {arg}")
+        if op != "mcopy":
+            raise ValidationError(
+                f"{op} n'accepte que des chemins '::' internes a l'image, recu : {arg}"
+            )
+        if not is_allowed_unix_path(arg, home_dir):
+            raise ValidationError(f"chemin Unix non autorise : {arg}")
+        resolved_args.append(os.path.realpath(arg))
+    return resolved_args
+
+
+def main(argv: list[str]) -> int:
+    if len(argv) < 3:
+        print("USAGE_ERROR: usage: mtools-gui-helper <op> <device> [args...]", file=sys.stderr)
+        return 3
+
+    op, device, *args = argv[1:]
+
+    if op not in ALLOWED_OPS:
+        print(f"USAGE_ERROR: operation non autorisee : {op}", file=sys.stderr)
+        return 3
+
+    try:
+        resolved_device = validate_device(device)
+        resolved_args = validate_args(op, args)
+    except ValidationError as exc:
+        print(f"VALIDATION_ERROR: {exc}", file=sys.stderr)
+        return 2
+    except UsageError as exc:
+        print(f"USAGE_ERROR: {exc}", file=sys.stderr)
+        return 3
+
+    binary = ALLOWED_OPS[op]
+    # mcopy only recurses into subdirectories with -s - without it, a
+    # directory source silently copies just its top-level files and
+    # drops every subdirectory (confirmed against a local test image: 4
+    # files across 2 subdirs copied, only 1 root-level file actually
+    # appeared on the other side). -s is a no-op for a plain file source,
+    # so it's always safe to add for mcopy regardless of direction.
+    extra_flags = ["-s"] if op == "mcopy" else []
+    command = [binary, "-i", resolved_device, *extra_flags, *resolved_args]
+
+    try:
+        proc = subprocess.run(command, capture_output=True, text=True, env=HELPER_ENV)
+    except OSError as exc:
+        print(f"USAGE_ERROR: impossible de lancer {binary} : {exc}", file=sys.stderr)
+        return 3
+
+    if proc.returncode == 0:
+        _hand_back_ownership(op, resolved_args)
+
+    sys.stdout.write(proc.stdout)
+    sys.stderr.write(proc.stderr)
+    return 0 if proc.returncode == 0 else 1
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv))

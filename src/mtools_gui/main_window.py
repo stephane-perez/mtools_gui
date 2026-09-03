@@ -1,0 +1,358 @@
+from __future__ import annotations
+
+import logging
+import os
+from pathlib import Path
+
+from PySide6.QtCore import QSettings, Qt
+from PySide6.QtGui import QKeySequence, QShortcut
+from PySide6.QtWidgets import (
+    QComboBox,
+    QDialog,
+    QHBoxLayout,
+    QInputDialog,
+    QLabel,
+    QMainWindow,
+    QMessageBox,
+    QPlainTextEdit,
+    QPushButton,
+    QSplitter,
+    QToolBar,
+    QVBoxLayout,
+    QWidget,
+)
+
+from . import __version__, device_discovery
+from .backends.dos_backend import DosBackend
+from .backends.local_backend import LocalBackend
+from .constants import HELPER_INSTALL_PATH, INSTALL_HELPER_COMMAND
+from .device_discovery import DriveCandidate
+from .entry import Entry
+from .i18n import _
+from .pane_widget import PaneWidget
+from .transfer_service import TransferService
+
+logger = logging.getLogger(__name__)
+
+
+class MainWindow(QMainWindow):
+    def __init__(self):
+        super().__init__()
+        self.setWindowTitle(_("window_title"))
+        self.resize(1000, 600)
+
+        self.settings = QSettings()
+
+        self.local_backend = LocalBackend()
+        self.transfer_service = TransferService(self)
+        self.transfer_service.operation_succeeded.connect(self._on_operation_succeeded)
+        self.transfer_service.operation_failed.connect(self._on_operation_failed)
+
+        self.left_pane = PaneWidget("left", self)
+        self.right_pane = PaneWidget("right", self)
+        self.left_pane.error.connect(self._show_status_error)
+        self.right_pane.error.connect(self._show_status_error)
+        self.left_pane.activated_file.connect(lambda e: self._view_file(self.left_pane, e))
+        self.right_pane.activated_file.connect(lambda e: self._view_file(self.right_pane, e))
+        self.left_pane.focused.connect(lambda: self._set_active_pane(self.left_pane))
+        self.right_pane.focused.connect(lambda: self._set_active_pane(self.right_pane))
+        self.left_pane.view.entries_dropped.connect(
+            lambda side, names, move: self._on_entries_dropped(self.left_pane, side, names, move)
+        )
+        self.right_pane.view.entries_dropped.connect(
+            lambda side, names, move: self._on_entries_dropped(self.right_pane, side, names, move)
+        )
+        self.active_pane = self.left_pane
+
+        left_path = self.settings.value("left_pane/path", str(Path.home()))
+        if not os.path.isdir(left_path):
+            logger.info("Saved left pane path not found (%s), falling back to $HOME", left_path)
+            left_path = str(Path.home())
+        self.left_pane.set_backend(self.local_backend, left_path)
+        logger.info("Left pane initialized at %s", left_path)
+
+        # Consumed once, on the first _refresh_drives() call below, to
+        # restore the previously selected DOS drive/path if it's still
+        # present on this system - see _refresh_drives/_on_drive_selected.
+        self._pending_right_device = self.settings.value("right_pane/device", None)
+        self._pending_right_path = self.settings.value("right_pane/path", "/")
+
+        self._drive_candidates: list[DriveCandidate] = []
+        self.drive_combo = QComboBox(self)
+        self.drive_combo.currentIndexChanged.connect(self._on_drive_selected)
+        refresh_drives_button = QPushButton(_("drive_refresh_button"), self)
+        refresh_drives_button.clicked.connect(self._refresh_drives)
+
+        # The drive picker sits on its own row, above both panes rather
+        # than inside the right pane's own layout - otherwise the right
+        # pane would start one row lower than the left, leaving the two
+        # tables visibly misaligned.
+        drive_row = QHBoxLayout()
+        drive_row.addWidget(QLabel(_("drive_label"), self))
+        drive_row.addWidget(self.drive_combo, stretch=1)
+        drive_row.addWidget(refresh_drives_button)
+
+        splitter = QSplitter(self)
+        splitter.addWidget(self.left_pane)
+        splitter.addWidget(self.right_pane)
+        splitter.setSizes([500, 500])
+
+        central = QWidget(self)
+        central_layout = QVBoxLayout(central)
+        central_layout.setContentsMargins(4, 4, 4, 4)
+        central_layout.addLayout(drive_row)
+        central_layout.addWidget(splitter)
+        self.setCentralWidget(central)
+
+        self._build_toolbar()
+        self._build_shortcuts()
+        self.statusBar().showMessage(_("status_ready"))
+
+        self._refresh_drives()
+        self._check_helper_installed()
+
+    # -- setup -----------------------------------------------------------
+
+    def _build_toolbar(self) -> None:
+        toolbar = QToolBar("Actions", self)
+        self.addToolBar(toolbar)
+        toolbar.addAction(_("toolbar_refresh"), self.refresh_active_pane)
+        toolbar.addAction(_("toolbar_copy"), self.copy_selection)
+        move_action = toolbar.addAction(_("toolbar_move"), self.move_selection)
+        move_action.setToolTip(_("toolbar_move_tooltip"))
+        toolbar.addAction(_("toolbar_rename"), self.rename_selection)
+        toolbar.addAction(_("toolbar_delete"), self.delete_selection)
+        toolbar.addAction(_("toolbar_mkdir"), self.make_directory)
+        toolbar.addAction(_("toolbar_about"), self._show_about)
+
+    def _build_shortcuts(self) -> None:
+        # Deliberately not Total Commander/Midnight Commander bindings.
+        # No shortcut for "Deplacer" - only the toolbar button and
+        # Alt+glisser-deposer trigger a move (Ctrl+Alt+C was unwieldy).
+        QShortcut(QKeySequence("F5"), self, activated=self.refresh_active_pane)
+        QShortcut(QKeySequence("Ctrl+C"), self, activated=self.copy_selection)
+        QShortcut(QKeySequence("Ctrl+N"), self, activated=self.make_directory)
+        QShortcut(QKeySequence(Qt.Key_Delete), self, activated=self.delete_selection)
+        QShortcut(QKeySequence(Qt.Key_F2), self, activated=self.rename_selection)
+        QShortcut(QKeySequence(Qt.Key_Tab), self, activated=self._toggle_active_pane)
+
+    def _check_helper_installed(self) -> None:
+        if not os.path.exists(HELPER_INSTALL_PATH):
+            logger.warning("Privileged helper not installed (%s)", HELPER_INSTALL_PATH)
+            QMessageBox.information(
+                self,
+                _("dialog_install_required_title"),
+                _("dialog_install_required_text", command=INSTALL_HELPER_COMMAND),
+            )
+
+    def _show_about(self) -> None:
+        QMessageBox.about(
+            self,
+            _("about_title"),
+            _("about_text", version=__version__),
+        )
+
+    # -- active pane tracking ---------------------------------------------
+
+    def _set_active_pane(self, pane: PaneWidget) -> None:
+        self.active_pane = pane
+
+    def _toggle_active_pane(self) -> None:
+        other = self.right_pane if self.active_pane is self.left_pane else self.left_pane
+        other.view.setFocus()
+
+    def _inactive_pane(self) -> PaneWidget:
+        return self.right_pane if self.active_pane is self.left_pane else self.left_pane
+
+    # -- drive picker -------------------------------------------------------
+
+    def _refresh_drives(self) -> None:
+        # On a manual refresh, keep whatever is currently selected; on the
+        # very first call (startup), nothing is selected yet, so fall back
+        # to the device saved from the previous session.
+        current_data = self.drive_combo.currentData()
+        preferred_path = current_data.path if current_data else self._pending_right_device
+        self._pending_right_device = None
+
+        self._drive_candidates = device_discovery.discover()
+        logger.info("%d DOS drive(s) detected", len(self._drive_candidates))
+        self.drive_combo.blockSignals(True)
+        self.drive_combo.clear()
+        self.drive_combo.addItem(_("drive_placeholder"), None)
+        restore_index = 0
+        for i, candidate in enumerate(self._drive_candidates, start=1):
+            self.drive_combo.addItem(candidate.display_name(), candidate)
+            if preferred_path and candidate.path == preferred_path:
+                restore_index = i
+        self.drive_combo.setCurrentIndex(restore_index)
+        self.drive_combo.blockSignals(False)
+
+        # Signals were blocked throughout the rebuild above, so
+        # currentIndexChanged never fired on its own. Only force an
+        # attach/detach when needed - if the same device is still
+        # selected, leave the pane's current navigation path alone
+        # (a manual "Rafraichir" shouldn't reset the user back to "/").
+        already_attached = (
+            restore_index != 0
+            and isinstance(self.right_pane.backend, DosBackend)
+            and self.right_pane.backend.device == preferred_path
+        )
+        if not already_attached:
+            self._on_drive_selected(restore_index)
+
+    def _on_drive_selected(self, index: int) -> None:
+        candidate: DriveCandidate | None = self.drive_combo.itemData(index)
+        if candidate is None:
+            self.right_pane.set_backend(None)
+            return
+        initial_path = self._pending_right_path or "/"
+        self._pending_right_path = None
+        logger.info("DOS drive selected: %s (initial path %s)", candidate.path, initial_path)
+        self.right_pane.set_backend(DosBackend(candidate.path), initial_path)
+
+    # -- operations -----------------------------------------------------
+
+    def copy_selection(self) -> None:
+        src = self.active_pane
+        dst = self._inactive_pane()
+        self._transfer_entries(src, dst, src.selected_entries(), move=False)
+
+    def move_selection(self) -> None:
+        src = self.active_pane
+        dst = self._inactive_pane()
+        self._transfer_entries(src, dst, src.selected_entries(), move=True)
+
+    def _on_entries_dropped(self, dst: PaneWidget, src_side: str, names: list[str], move: bool) -> None:
+        src = self.left_pane if src_side == "left" else self.right_pane
+        if src is dst:
+            return  # dropped on the pane it came from - nothing to do
+        entries = src.entries_by_names(names)
+        logger.info(
+            "Drag-and-drop (%s): %s from %s to %s",
+            "move" if move else "copy", names, src.side, dst.side,
+        )
+        self._transfer_entries(src, dst, entries, move=move)
+
+    def _transfer_entries(self, src: PaneWidget, dst: PaneWidget, entries: list[Entry], move: bool) -> None:
+        if not entries or not self._require_backend(dst):
+            return
+        if move:
+            names = ", ".join(e.name for e in entries)
+            if QMessageBox.question(
+                self, _("confirm_move_title"), _("confirm_move_text", side=dst.side, names=names)
+            ) != QMessageBox.Yes:
+                logger.info("Move cancelled by the user: %s", names)
+                return
+        verb = "Move" if move else "Copy"
+        service_call = self.transfer_service.move if move else self.transfer_service.copy
+        for entry in entries:
+            logger.info(
+                "%s requested: %s (%s:%s -> %s:%s)",
+                verb, entry.name, src.side, src.current_path, dst.side, dst.current_path,
+            )
+            service_call(
+                src.backend, src.side, src.current_path, entry,
+                dst.backend, dst.side, dst.current_path,
+            )
+
+    def delete_selection(self) -> None:
+        pane = self.active_pane
+        entries = pane.selected_entries()
+        if not entries:
+            return
+        names = ", ".join(e.name for e in entries)
+        if QMessageBox.question(
+            self, _("confirm_delete_title"), _("confirm_delete_text", names=names)
+        ) != QMessageBox.Yes:
+            logger.info("Delete cancelled by the user: %s", names)
+            return
+        for entry in entries:
+            logger.info("Delete requested: %s:%s/%s", pane.side, pane.current_path, entry.name)
+            self.transfer_service.delete(pane.backend, pane.side, pane.current_path, entry)
+
+    def make_directory(self) -> None:
+        pane = self.active_pane
+        if not self._require_backend(pane):
+            return
+        name, ok = QInputDialog.getText(self, _("dialog_new_folder_title"), _("dialog_new_folder_label"))
+        if ok and name:
+            logger.info("New folder requested: %s:%s/%s", pane.side, pane.current_path, name)
+            self.transfer_service.mkdir(pane.backend, pane.side, pane.current_path, name)
+
+    def rename_selection(self) -> None:
+        pane = self.active_pane
+        entries = pane.selected_entries()
+        if len(entries) != 1:
+            self.statusBar().showMessage(_("status_select_one_to_rename"), 4000)
+            return
+        entry = entries[0]
+        new_name, ok = QInputDialog.getText(
+            self, _("dialog_rename_title"), _("dialog_rename_label"), text=entry.name
+        )
+        if ok and new_name and new_name != entry.name:
+            logger.info(
+                "Rename requested: %s:%s/%s -> %s",
+                pane.side, pane.current_path, entry.name, new_name,
+            )
+            self.transfer_service.rename(pane.backend, pane.side, pane.current_path, entry.name, new_name)
+
+    def refresh_active_pane(self) -> None:
+        self.left_pane.refresh()
+        self.right_pane.refresh()
+
+    def _require_backend(self, pane: PaneWidget) -> bool:
+        if pane.backend is None:
+            self.statusBar().showMessage(_("status_choose_drive"), 4000)
+            return False
+        return True
+
+    def _view_file(self, pane: PaneWidget, entry: Entry) -> None:
+        try:
+            content = pane.backend.read_text(pane.current_path, entry.name)
+        except Exception as exc:
+            self._on_operation_failed(_("view_dialog_read_error", name=entry.name, error=exc))
+            return
+        dialog = QDialog(self)
+        dialog.setWindowTitle(entry.name)
+        dialog.resize(600, 400)
+        layout = QVBoxLayout(dialog)
+        text_edit = QPlainTextEdit(dialog)
+        text_edit.setReadOnly(True)
+        text_edit.setPlainText(content)
+        layout.addWidget(text_edit)
+        dialog.exec()
+
+    # -- feedback ---------------------------------------------------------
+
+    def _on_operation_succeeded(self, description: str, sides: str) -> None:
+        logger.info("%s: done", description)
+        self.statusBar().showMessage(_("status_op_done", description=description), 5000)
+        for side in sides.split(","):
+            (self.left_pane if side == "left" else self.right_pane).refresh()
+
+    def _on_operation_failed(self, message: str) -> None:
+        logger.error("%s", message)
+        self.statusBar().showMessage(message, 8000)
+        QMessageBox.warning(self, _("dialog_error_title"), message)
+
+    def _show_status_error(self, message: str) -> None:
+        logger.warning("%s", message)
+        self.statusBar().showMessage(message, 8000)
+
+    # -- session persistence ------------------------------------------------
+
+    def closeEvent(self, event) -> None:
+        self.settings.setValue("left_pane/path", self.left_pane.current_path)
+        logger.info("Saving left pane path: %s", self.left_pane.current_path)
+
+        candidate: DriveCandidate | None = self.drive_combo.currentData()
+        if candidate is not None:
+            self.settings.setValue("right_pane/device", candidate.path)
+            self.settings.setValue("right_pane/path", self.right_pane.current_path)
+            logger.info(
+                "Saving DOS drive: %s (path %s)", candidate.path, self.right_pane.current_path
+            )
+        else:
+            self.settings.remove("right_pane/device")
+            self.settings.remove("right_pane/path")
+        super().closeEvent(event)

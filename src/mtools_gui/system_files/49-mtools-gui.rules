@@ -1,0 +1,16 @@
+// Installed by mtools-gui-install-helper to /etc/polkit-1/rules.d/49-mtools-gui.rules
+//
+// Allows the local, currently-active graphical session user to run the
+// mtools_gui privileged helper as root without a password prompt.
+//
+// Deliberately scoped to the exact fixed path of that one helper -
+// never to mcopy/mdir/etc. directly - so this rule cannot be leveraged
+// to run arbitrary root commands. The helper itself re-validates every
+// call (see system_files/mtools-gui-helper) before touching any device.
+polkit.addRule(function(action, subject) {
+    if (action.id == "org.freedesktop.policykit.exec" &&
+        action.lookup("program") == "/usr/local/libexec/mtools-gui-helper" &&
+        subject.local && subject.active) {
+        return polkit.Result.YES;
+    }
+});

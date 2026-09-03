@@ -1,0 +1,144 @@
+{
+   "blockdevices": [
+      {
+         "name": "sda",
+         "path": "/dev/sda",
+         "fstype": null,
+         "size": "447.1G",
+         "rm": false,
+         "mountpoint": null,
+         "label": null,
+         "type": "disk",
+         "hotplug": false,
+         "children": [
+            {
+               "name": "sda1",
+               "path": "/dev/sda1",
+               "fstype": "vfat",
+               "size": "1.9G",
+               "rm": false,
+               "mountpoint": "/boot/efi",
+               "label": "UEFI",
+               "type": "part",
+               "hotplug": false
+            },
+            {
+               "name": "sda2",
+               "path": "/dev/sda2",
+               "fstype": "ext4",
+               "size": "63.3G",
+               "rm": false,
+               "mountpoint": "/",
+               "label": "mint",
+               "type": "part",
+               "hotplug": false
+            }
+         ]
+      },
+      {
+         "name": "sdb",
+         "path": "/dev/sdb",
+         "fstype": null,
+         "size": "465.8G",
+         "rm": false,
+         "mountpoint": null,
+         "label": null,
+         "type": "disk",
+         "hotplug": false,
+         "children": [
+            {
+               "name": "sdb1",
+               "path": "/dev/sdb1",
+               "fstype": "ext4",
+               "size": "465.8G",
+               "rm": false,
+               "mountpoint": "/home/steph/Documents",
+               "label": "Documents",
+               "type": "part",
+               "hotplug": false
+            }
+         ]
+      },
+      {
+         "name": "sde",
+         "path": "/dev/sde",
+         "fstype": null,
+         "size": "31.0G",
+         "rm": true,
+         "mountpoint": null,
+         "label": null,
+         "type": "disk",
+         "hotplug": true,
+         "children": [
+            {
+               "name": "sde1",
+               "path": "/dev/sde1",
+               "fstype": "vfat",
+               "size": "29.7G",
+               "rm": true,
+               "mountpoint": null,
+               "label": "SDCARD",
+               "type": "part",
+               "hotplug": true
+            }
+         ]
+      },
+      {
+         "name": "sdf",
+         "path": "/dev/sdf",
+         "fstype": null,
+         "size": "0B",
+         "rm": true,
+         "mountpoint": null,
+         "label": null,
+         "type": "disk",
+         "hotplug": true
+      },
+      {
+         "name": "sdg",
+         "path": "/dev/sdg",
+         "fstype": null,
+         "size": "512M",
+         "rm": true,
+         "mountpoint": null,
+         "label": null,
+         "type": "disk",
+         "hotplug": true,
+         "children": [
+            {
+               "name": "sdg1",
+               "path": "/dev/sdg1",
+               "fstype": null,
+               "size": "256M",
+               "rm": true,
+               "mountpoint": null,
+               "label": null,
+               "type": "part",
+               "hotplug": true
+            },
+            {
+               "name": "sdg2",
+               "path": "/dev/sdg2",
+               "fstype": null,
+               "size": "256M",
+               "rm": true,
+               "mountpoint": null,
+               "label": null,
+               "type": "part",
+               "hotplug": true
+            }
+         ]
+      },
+      {
+         "name": "sr0",
+         "path": "/dev/sr0",
+         "fstype": null,
+         "size": "1024M",
+         "rm": true,
+         "mountpoint": null,
+         "label": null,
+         "type": "rom",
+         "hotplug": false
+      }
+   ]
+}

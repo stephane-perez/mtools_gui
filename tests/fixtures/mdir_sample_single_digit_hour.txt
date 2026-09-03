@@ -1,0 +1,18 @@
+ Volume in drive : has no label
+ Volume Serial Number is 6174-A563
+Directory for ::/SYSTEME/TERADESK
+
+.            <DIR>     2028-11-20  20:49
+..           <DIR>     2028-11-20  20:49
+EXAMPLES     <DIR>     2011-03-21  23:27
+DOC          <DIR>     2011-03-21  23:27
+ICONS    RSC     12618 2005-01-27  21:43
+CICONS   RSC     63788 2005-01-27  21:37
+DESKTOP  RSC     32086 2008-12-15  20:44
+TERADESK INF      4974 2026-08-02  16:31
+DESKTOP  RSD     10448 2008-12-17   1:52
+DESKTOP  PRG    145583 2011-01-27   0:27
+DESKTOS  PRG    134943 2011-01-27   0:09
+README   TXT     16077 2011-01-27   2:24
+       12 files             420 517 bytes
+                          5 214 208 bytes free

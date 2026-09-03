@@ -1,0 +1,28 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "mtools-gui"
+version = "0.1.0"
+description = "Gestionnaire de fichiers a deux volets pour echanger des fichiers entre Linux et une partition DOS/FAT sur carte SD, via mtools."
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+dependencies = [
+    "PySide6>=6.6",
+]
+
+[project.scripts]
+mtools-gui = "mtools_gui.app:main"
+mtools-gui-install-helper = "mtools_gui.install_helper:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/mtools_gui"]
+
+[tool.hatch.build.targets.wheel.force-include]
+"src/mtools_gui/system_files/mtools-gui-helper" = "mtools_gui/system_files/mtools-gui-helper"
+"src/mtools_gui/system_files/49-mtools-gui.rules" = "mtools_gui/system_files/49-mtools-gui.rules"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

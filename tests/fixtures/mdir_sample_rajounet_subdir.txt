@@ -1,0 +1,15 @@
+ Volume in drive I has no label
+ Volume Serial Number is 6174-A565
+Directory for I:/RAJOUNET
+
+.            <DIR>     2025-11-28  17:47
+..           <DIR>     1980-00-00   0:00
+2048     68K <DIR>     2025-11-28  17:48
+DEFLATE  68K <DIR>     2025-11-28  17:48
+DOSFS    68K <DIR>     2025-11-28  17:48
+HEXEDIT  68K <DIR>     2025-11-28  17:48
+KKCMDFR  68K <DIR>     2025-11-28  17:48
+TRAMIEL  68K <DIR>     2025-11-28  17:48
+VDI_FX   68K <DIR>     2025-11-28  17:48
+        9 files                   0 bytes
+                        494 403 584 bytes free
