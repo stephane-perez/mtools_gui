@@ -113,4 +113,4 @@ def test_display_name_includes_path_and_label():
 def test_display_name_flags_unrecognized_fstype():
     candidates = filter_candidates(_load_json())
     sdg1 = next(c for c in candidates if c.path == "/dev/sdg1")
-    assert "GEMDOS" in sdg1.display_name()
+    assert "DOS" in sdg1.display_name()

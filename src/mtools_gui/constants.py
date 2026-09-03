@@ -24,10 +24,10 @@ FAT_FSTYPES = frozenset({"vfat", "fat", "fat12", "fat16", "fat32", "msdos"})
 # Filesystems the Linux kernel positively identifies as *not* FAT-like.
 # Partitions with one of these fstypes are never shown as DOS-pane
 # candidates. Everything else - including an empty/unrecognized fstype,
-# which is exactly what a GEMDOS (Atari) partition looks like to lsblk -
-# is left in: mtools reads the FAT structures itself, independently of
-# the kernel's own filesystem detection, so it can succeed even where
-# Linux reports nothing usable.
+# which is what a non-standard DOS variant (e.g. GEMDOS on Atari) often
+# looks like to lsblk - is left in: mtools reads the FAT structures
+# itself, independently of the kernel's own filesystem detection, so it
+# can succeed even where Linux reports nothing usable.
 NON_DOS_FSTYPES = frozenset(
     {
         "ext2", "ext3", "ext4",

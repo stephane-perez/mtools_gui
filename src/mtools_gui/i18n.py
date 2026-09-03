@@ -52,8 +52,8 @@ _STRINGS: dict[str, dict[str, str]] = {
     "drive_refresh_button": {"fr": "Rafraichir lecteurs", "en": "Refresh drives"},
     "drive_placeholder": {"fr": "(choisir un lecteur)", "en": "(choose a drive)"},
     "drive_unknown_fstype": {
-        "fr": "type inconnu - probablement GEMDOS",
-        "en": "unknown type - probably GEMDOS",
+        "fr": "type inconnu - probablement DOS",
+        "en": "unknown type - probably DOS",
     },
     "drive_no_label": {"fr": "(sans nom)", "en": "(no label)"},
     "pane_up_button": {"fr": "Remonter", "en": "Up"},
@@ -115,15 +115,15 @@ _STRINGS: dict[str, dict[str, str]] = {
             "Version {version}<br>"
             "Auteur : strider<br><br>"
             "Gestionnaire de fichiers a deux volets pour echanger des "
-            "fichiers entre Linux et une partition DOS/GEMDOS sur carte "
-            "SD, via mtools."
+            "fichiers entre Linux et une partition DOS sur carte SD, "
+            "via mtools."
         ),
         "en": (
             "<b>mtools_gui</b><br>"
             "Version {version}<br>"
             "Author: strider<br><br>"
             "Two-pane file manager for exchanging files between Linux "
-            "and a DOS/GEMDOS partition on an SD card, via mtools."
+            "and a DOS partition on an SD card, via mtools."
         ),
     },
     "err_helper_not_installed": {

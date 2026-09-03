@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import logging
 
-from PySide6.QtCore import QEvent, Qt, QTimer, Signal
+from PySide6.QtCore import QEvent, Qt, Signal
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QHBoxLayout,
@@ -101,7 +101,8 @@ class PaneWidget(QWidget):
         self.current_path = ""
 
         self._name_column_content_width = MIN_NAME_COLUMN_WIDTH
-        self._modified_column_min_width = 0
+        self._size_column_width = MIN_NAME_COLUMN_WIDTH
+        self._modified_column_min_width = MIN_NAME_COLUMN_WIDTH
 
         self.model = PaneTableModel(self)
         self.model.side = side
@@ -110,12 +111,18 @@ class PaneWidget(QWidget):
         self.view.setSelectionBehavior(QAbstractItemView.SelectRows)
         self.view.setSelectionMode(QAbstractItemView.ExtendedSelection)
         self.view.setEditTriggers(QAbstractItemView.NoEditTriggers)
-        self.view.horizontalHeader().setStretchLastSection(True)
+        # All three columns are sized explicitly on every refresh/resize
+        # (see _apply_name_column_width) rather than relying on
+        # setStretchLastSection - Qt enforces its own minimum on a
+        # stretched last section (its defaultSectionSize, 100px) that
+        # doesn't line up with what we reserve for Modified here, which
+        # was overflowing the viewport and popping a horizontal scrollbar.
         self.view.horizontalHeader().setSortIndicatorShown(True)
         self.view.horizontalHeader().setSortIndicator(self.model.sort_column, self.model.sort_order)
         self.view.horizontalHeader().sectionClicked.connect(self._on_header_clicked)
         self.view.doubleClicked.connect(self._on_double_clicked)
         self.view.installEventFilter(self)
+        self.view.viewport().installEventFilter(self)
 
         self.path_label = QLineEdit(self)
         self.path_label.setReadOnly(True)
@@ -170,13 +177,14 @@ class PaneWidget(QWidget):
         self.path_changed.emit(self.current_path)
 
     def _update_name_column_width(self) -> None:
-        # Size gets a compact, content-sized column (numbers/units are
-        # short and never need much room). Modified stretches to fill
-        # whatever's left (see _apply_name_column_width), but it still
-        # needs its own content-based *minimum* reserved up front -
-        # otherwise Name (which claims all "leftover" space) can starve
-        # it below what its own text needs, forcing the whole row wider
-        # than the viewport and popping a horizontal scrollbar.
+        # Size and Modified each get a compact, content-sized minimum
+        # (numbers/units and dates are naturally short); Name gets
+        # whatever's left (see _apply_name_column_width). All three are
+        # set explicitly - relying on Qt's setStretchLastSection for
+        # Modified turned out to enforce its own ~100px minimum
+        # (defaultSectionSize) regardless of what we'd reserved for it,
+        # which silently overflowed the viewport and popped a horizontal
+        # scrollbar.
         fm = self.view.fontMetrics()
         name_width = MIN_NAME_COLUMN_WIDTH
         size_width = fm.horizontalAdvance(self.model.headerData(SIZE_COLUMN, Qt.Horizontal)) + SIZE_COLUMN_PADDING
@@ -194,40 +202,52 @@ class PaneWidget(QWidget):
             modified_text = self.model.data(self.model.index(row, MODIFIED_COLUMN)) or ""
             modified_width = max(modified_width, fm.horizontalAdvance(modified_text) + SIZE_COLUMN_PADDING)
         self._name_column_content_width = name_width
+        self._size_column_width = size_width
         self._modified_column_min_width = modified_width
-        self.view.setColumnWidth(SIZE_COLUMN, size_width)
         self._apply_name_column_width()
-        # The viewport isn't always at its final size yet when this runs
-        # (e.g. called from __init__ before the window is ever shown, or
-        # from resizeEvent before Qt has finished re-laying-out this
-        # widget's children) - a value read then can be stale and never
-        # gets corrected afterwards if nothing else triggers a resize.
-        # Reapplying once more on the next event loop iteration, once
-        # Qt's layout pass has actually settled, fixes that.
-        QTimer.singleShot(0, self._apply_name_column_width)
+        # If this changes the row count enough to show/hide a vertical
+        # scrollbar, the viewport resizes on its own right after this -
+        # the viewport-resize event filter below catches that and
+        # reapplies with the now-correct width, so no extra handling is
+        # needed here even though the viewport isn't always at its final
+        # size yet at this exact point (e.g. called from __init__ before
+        # the window is ever shown).
 
     def _apply_name_column_width(self) -> None:
         viewport_width = self.view.viewport().width()
         if viewport_width <= 0:
             self.view.setColumnWidth(NAME_COLUMN, max(self._name_column_content_width, MIN_NAME_COLUMN_WIDTH))
+            self.view.setColumnWidth(SIZE_COLUMN, self._size_column_width)
+            self.view.setColumnWidth(MODIFIED_COLUMN, self._modified_column_min_width)
             return
         # Name claims whatever's left after Size and Modified's reserved
-        # minimum, not just what its own content needs - otherwise
-        # Modified (which stretches to fill the remainder) ends up the
-        # widest column on a wide window, which looks wrong: Name should
-        # visually dominate the pane. Reserving Modified's minimum first
-        # keeps the three columns' total within the viewport, so no
-        # horizontal scrollbar appears.
-        size_width = self.view.columnWidth(SIZE_COLUMN)
-        remaining_for_name = viewport_width - size_width - self._modified_column_min_width
-        width = max(self._name_column_content_width, remaining_for_name)
-        width = min(width, int(viewport_width * MAX_NAME_COLUMN_FRACTION))
-        self.view.setColumnWidth(NAME_COLUMN, max(width, MIN_NAME_COLUMN_WIDTH))
+        # minimum - it does NOT also grow to fit its own longest-name
+        # content beyond that (Qt already elides overflowing text with
+        # "..." in a cell that's narrower than its content, same as any
+        # other column). Letting content width push Name past the fair
+        # share computed here is exactly what caused a several-pixel
+        # overflow - and therefore a horizontal scrollbar - even though
+        # every column already had a reasonable size: avoiding a
+        # scrollbar takes priority over never eliding a long name.
+        size_width = self._size_column_width
+        available_for_name = viewport_width - size_width - self._modified_column_min_width
+        name_width = min(available_for_name, int(viewport_width * MAX_NAME_COLUMN_FRACTION))
+        name_width = max(name_width, MIN_NAME_COLUMN_WIDTH)
+        # Whatever's left after Name and Size goes to Modified, so the
+        # three columns exactly fill the viewport - no gap, no overflow,
+        # no scrollbar, except in the genuinely-unavoidable case of a
+        # viewport too narrow to fit even the minimums.
+        modified_width = max(self._modified_column_min_width, viewport_width - name_width - size_width)
+        self.view.setColumnWidth(NAME_COLUMN, name_width)
+        self.view.setColumnWidth(SIZE_COLUMN, size_width)
+        self.view.setColumnWidth(MODIFIED_COLUMN, modified_width)
 
     def resizeEvent(self, event) -> None:
         super().resizeEvent(event)
+        # Immediate best-effort pass for a snappy resize; the viewport's
+        # own Resize event (caught in eventFilter) fires right after with
+        # the now-settled width and corrects anything this pass got wrong.
         self._apply_name_column_width()
-        QTimer.singleShot(0, self._apply_name_column_width)
 
     def go_up(self) -> None:
         if self.backend is None or self.current_path in ROOT_PATHS:
@@ -265,6 +285,14 @@ class PaneWidget(QWidget):
     def eventFilter(self, obj, event) -> bool:
         if obj is self.view and event.type() == QEvent.FocusIn:
             self.focused.emit()
+        elif obj is self.view.viewport() and event.type() == QEvent.Resize:
+            # The authoritative signal that the viewport's width has
+            # actually changed - unlike PaneWidget's own resizeEvent or a
+            # fixed-delay timer, this can't fire with a stale size (a
+            # vertical scrollbar appearing/disappearing after a
+            # navigation, for instance, resizes the viewport on its own
+            # schedule, independent of the outer widget).
+            self._apply_name_column_width()
         return super().eventFilter(obj, event)
 
     def _on_double_clicked(self, index) -> None:

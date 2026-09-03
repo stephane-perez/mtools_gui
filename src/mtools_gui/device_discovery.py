@@ -1,15 +1,15 @@
-"""Discovery of removable partitions that might be DOS/GEMDOS-formatted,
-e.g. an SD card, so the user never has to type a raw device path.
-Read-only, no root required: lsblk enumeration alone doesn't touch the
-device.
+"""Discovery of removable partitions that might be DOS-formatted, e.g. an
+SD card, so the user never has to type a raw device path. Read-only, no
+root required: lsblk enumeration alone doesn't touch the device.
 
 Deliberately does NOT require lsblk to have already recognized the
-filesystem as FAT: a GEMDOS (Atari) partition typically shows up with an
-empty/unrecognized fstype in lsblk even though mtools reads it fine
-(mtools parses the FAT structures itself, bypassing the kernel's own
-detection - see NON_DOS_FSTYPES). Requiring a kernel-recognized FAT
-fstype would only ever surface partitions the desktop file manager could
-already mount directly, defeating the point of this tool.
+filesystem as FAT: a non-standard DOS variant (e.g. GEMDOS on Atari
+machines) typically shows up with an empty/unrecognized fstype in lsblk
+even though mtools reads it fine (mtools parses the FAT structures
+itself, bypassing the kernel's own detection - see NON_DOS_FSTYPES).
+Requiring a kernel-recognized FAT fstype would only ever surface
+partitions the desktop file manager could already mount directly,
+defeating the point of this tool.
 """
 
 from __future__ import annotations

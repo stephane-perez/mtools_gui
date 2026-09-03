@@ -1,9 +1,9 @@
 # mtools_gui
 
-Gestionnaire de fichiers a deux volets (facon Midnight/Total Commander) pour
-echanger des fichiers entre le systeme de fichiers Linux local et une
-partition DOS/FAT presente sur une carte SD, via [mtools](https://www.gnu.org/software/mtools/)
-plutot que par un montage noyau.
+A two-pane file manager (Midnight/Total Commander style) for exchanging
+files between the local Linux filesystem and a DOS/FAT partition on an
+SD card, via [mtools](https://www.gnu.org/software/mtools/) rather than
+a kernel mount.
 
 ## Installation
 
@@ -12,49 +12,48 @@ pipx install .
 sudo "$(command -v mtools-gui-install-helper)"
 ```
 
-La seconde commande installe, une seule fois par machine :
-- `/usr/local/libexec/mtools-gui-helper` : le petit programme privilegie
-  qui execute reellement les commandes mtools sur le peripherique choisi.
-- `/etc/polkit-1/rules.d/49-mtools-gui.rules` : une regle polkit qui
-  autorise l'utilisateur de la session graphique active a lancer ce
-  helper (et uniquement lui) sans mot de passe.
+The second command installs, once per machine:
+- `/usr/local/libexec/mtools-gui-helper`: the small privileged program
+  that actually runs mtools commands against the chosen device.
+- `/etc/polkit-1/rules.d/49-mtools-gui.rules`: a polkit rule that lets
+  the active graphical session's user run this helper (and only this
+  helper) without a password.
 
-Le volet gauche (fichiers locaux) fonctionne sans cette etape ; elle n'est
-necessaire que pour acceder au volet droit (carte SD).
+The left pane (local files) works without this step; it's only needed
+to access the right pane (SD card).
 
-## Lancer l'application
+## Running the application
 
 ```bash
 mtools-gui
 ```
 
-## Langue
+## Language
 
-L'interface est en francais ou en anglais selon la locale systeme
-(`fr_*` -> francais, tout le reste -> anglais). Pour forcer une langue :
+The interface is in French or English depending on the system locale
+(`fr_*` -> French, everything else -> English). To force a language:
 
 ```bash
 MTOOLS_GUI_LANG=en mtools-gui
 ```
 
-## Prerequis systeme
+## System requirements
 
-- `mtools` (`mcopy`, `mdir`, `mdel`, `mmd`, ...) installe (`apt install mtools`).
-- `polkit`/`pkexec` (present par defaut sur la plupart des distributions
-  de bureau modernes).
-- `lsblk` (util-linux, present par defaut).
+- `mtools` (`mcopy`, `mdir`, `mdel`, `mmd`, ...) installed (`apt install mtools`).
+- `polkit`/`pkexec` (present by default on most modern desktop
+  distributions).
+- `lsblk` (util-linux, present by default).
 
-## Securite
+## Security
 
-Voir les commentaires dans `src/mtools_gui/system_files/mtools-gui-helper` :
-le helper valide independamment (via `lsblk` ET `/sys/block/*/removable`)
-que le peripherique cible est bien amovible avant toute operation, et
-confine tout chemin Unix passe a `mcopy` au dossier personnel de
-l'utilisateur ou aux racines de montage amovible usuelles.
+See the comments in `src/mtools_gui/system_files/mtools-gui-helper`: the
+helper independently validates (via `lsblk` AND `/sys/block/*/removable`)
+that the target device is actually removable before any operation, and
+confines any Unix path passed to `mcopy` to the user's home directory or
+the usual removable-media mount roots.
 
-## Desinstaller le helper privilegie
+## Uninstalling the privileged helper
 
 ```bash
 sudo "$(command -v mtools-gui-install-helper)" --uninstall
 ```
-# mtools_gui

@@ -62,13 +62,14 @@ ALLOWED_OPS = {
 }
 
 # Filesystems the kernel positively identifies as *not* FAT-like: reject
-# only these, rather than requiring a recognized FAT fstype. A GEMDOS
-# (Atari) partition typically shows up with an empty/unrecognized fstype
-# in lsblk even though mtools reads it fine - it parses the FAT
-# structures itself, independently of the kernel's own detection. Keep
-# this set in sync with constants.NON_DOS_FSTYPES (duplicated here
-# on purpose: this file must stay stdlib-only and standalone, it is not
-# imported from the mtools_gui package).
+# only these, rather than requiring a recognized FAT fstype. A
+# non-standard DOS variant (e.g. GEMDOS on Atari machines) typically
+# shows up with an empty/unrecognized fstype in lsblk even though mtools
+# reads it fine - it parses the FAT structures itself, independently of
+# the kernel's own detection. Keep this set in sync with
+# constants.NON_DOS_FSTYPES (duplicated here on purpose: this file must
+# stay stdlib-only and standalone, it is not imported from the
+# mtools_gui package).
 NON_DOS_FSTYPES = {
     "ext2", "ext3", "ext4",
     "btrfs", "xfs", "jfs", "reiserfs", "f2fs",
