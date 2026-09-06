@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import logging
 import os
+import subprocess
+import sys
 from pathlib import Path
 
 from PySide6.QtCore import QSettings, Qt
@@ -137,13 +139,52 @@ class MainWindow(QMainWindow):
         QShortcut(QKeySequence(Qt.Key_Tab), self, activated=self._toggle_active_pane)
 
     def _check_helper_installed(self) -> None:
-        if not os.path.exists(HELPER_INSTALL_PATH):
-            logger.warning("Privileged helper not installed (%s)", HELPER_INSTALL_PATH)
-            QMessageBox.information(
-                self,
-                _("dialog_install_required_title"),
-                _("dialog_install_required_text", command=INSTALL_HELPER_COMMAND),
+        if os.path.exists(HELPER_INSTALL_PATH):
+            return
+        logger.warning("Privileged helper not installed (%s)", HELPER_INSTALL_PATH)
+        box = QMessageBox(self)
+        box.setIcon(QMessageBox.Information)
+        box.setWindowTitle(_("dialog_install_required_title"))
+        box.setText(_("dialog_install_required_text", command=INSTALL_HELPER_COMMAND))
+        install_button = box.addButton(_("install_now_button"), QMessageBox.AcceptRole)
+        box.addButton(_("install_later_button"), QMessageBox.RejectRole)
+        box.exec()
+        if box.clickedButton() is install_button:
+            self._install_helper_now()
+
+    def _install_helper_now(self) -> None:
+        # Re-invoke the current interpreter (sys.executable) rather than
+        # shutil.which("mtools-gui-install-helper") on $PATH: that console
+        # script only exists there for a pipx/pip install. Running from
+        # an AppImage, it lives solely inside the bundled Python env, with
+        # no on-PATH entry at all. sys.executable + "-c" works uniformly
+        # across every packaging form, since Python resolves its own
+        # stdlib/site-packages from the interpreter binary's own location
+        # (not from $PYTHONPATH/$PYTHONHOME, which pkexec strips anyway,
+        # same as sudo's env_reset) - confirmed by running the app itself
+        # from a built AppImage during development.
+        logger.info("Installing privileged helper via pkexec (%s -c ...)", sys.executable)
+        script = "import mtools_gui.install_helper as m; m._install()"
+        try:
+            proc = subprocess.run(
+                ["pkexec", sys.executable, "-c", script], capture_output=True, text=True
             )
+        except FileNotFoundError as exc:
+            logger.error("pkexec not found: %s", exc)
+            QMessageBox.warning(self, _("dialog_error_title"), _("err_pkexec_not_found"))
+            return
+
+        if proc.returncode == 0:
+            logger.info("Privileged helper installed successfully")
+            QMessageBox.information(self, _("install_success_title"), _("install_success_text"))
+            self._refresh_drives()
+        elif proc.returncode == 126:
+            logger.info("Helper install cancelled (auth dismissed)")
+            self.statusBar().showMessage(_("install_auth_cancelled"), 5000)
+        else:
+            error = proc.stderr.strip() or f"exit code {proc.returncode}"
+            logger.error("Helper install failed: %s", error)
+            QMessageBox.warning(self, _("dialog_error_title"), _("install_failed_text", error=error))
 
     def _show_about(self) -> None:
         QMessageBox.about(

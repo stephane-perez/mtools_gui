@@ -1,6 +1,7 @@
-"""Discovery of removable partitions that might be DOS-formatted, e.g. an
-SD card, so the user never has to type a raw device path. Read-only, no
-root required: lsblk enumeration alone doesn't touch the device.
+"""Discovery of removable partitions that might be DOS-formatted (an SD
+card, a USB drive, ...), so the user never has to type a raw device
+path. Read-only, no root required: lsblk enumeration alone doesn't
+touch the device.
 
 Deliberately does NOT require lsblk to have already recognized the
 filesystem as FAT: a non-standard DOS variant (e.g. GEMDOS on Atari

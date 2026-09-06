@@ -5,10 +5,11 @@ build-backend = "hatchling.build"
 [project]
 name = "mtools-gui"
 version = "0.1.0"
-description = "Gestionnaire de fichiers a deux volets pour echanger des fichiers entre Linux et une partition DOS/FAT sur carte SD, via mtools."
+description = "Two-pane file manager for exchanging files between Linux and a DOS/FAT partition on a removable drive, via mtools."
 readme = "README.md"
 requires-python = ">=3.10"
-license = { text = "MIT" }
+license = "GPL-3.0-or-later"
+license-files = ["LICENSE"]
 dependencies = [
     "PySide6>=6.6",
 ]

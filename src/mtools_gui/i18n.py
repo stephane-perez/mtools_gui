@@ -33,8 +33,8 @@ LANGUAGE = _detect_language()
 
 _STRINGS: dict[str, dict[str, str]] = {
     "window_title": {
-        "fr": "mtools_gui - echange Linux / carte SD DOS",
-        "en": "mtools_gui - exchange files between Linux and a DOS SD card",
+        "fr": "mtools_gui - echange Linux / lecteur DOS",
+        "en": "mtools_gui - exchange files between Linux and a DOS drive",
     },
     "status_ready": {"fr": "Pret", "en": "Ready"},
     "toolbar_refresh": {"fr": "Rafraichir (F5)", "en": "Refresh (F5)"},
@@ -97,33 +97,50 @@ _STRINGS: dict[str, dict[str, str]] = {
     "dialog_install_required_text": {
         "fr": (
             "Le helper privilegie n'est pas encore installe.\n\n"
-            "Lancez une fois, dans un terminal :\n"
+            "Cliquez sur \"Installer maintenant\" (demandera votre mot de "
+            "passe), ou lancez une fois manuellement dans un terminal :\n"
             "  {command}\n\n"
             "Le volet gauche (fichiers locaux) fonctionne deja sans cela."
         ),
         "en": (
             "The privileged helper isn't installed yet.\n\n"
-            "Run this once, in a terminal:\n"
+            "Click \"Install now\" (will ask for your password), or run "
+            "this once manually in a terminal:\n"
             "  {command}\n\n"
             "The left pane (local files) already works without it."
         ),
+    },
+    "install_now_button": {"fr": "Installer maintenant", "en": "Install now"},
+    "install_later_button": {"fr": "Plus tard", "en": "Later"},
+    "install_success_title": {"fr": "Installation reussie", "en": "Installation succeeded"},
+    "install_success_text": {
+        "fr": "Le helper privilegie est maintenant installe.",
+        "en": "The privileged helper is now installed.",
+    },
+    "install_auth_cancelled": {
+        "fr": "Installation annulee (authentification refusee).",
+        "en": "Installation cancelled (authentication refused).",
+    },
+    "install_failed_text": {
+        "fr": "Echec de l'installation : {error}",
+        "en": "Installation failed: {error}",
     },
     "about_title": {"fr": "A propos de mtools_gui", "en": "About mtools_gui"},
     "about_text": {
         "fr": (
             "<b>mtools_gui</b><br>"
             "Version {version}<br>"
-            "Auteur : strider<br><br>"
+            "Auteur : Stephane Perez<br><br>"
             "Gestionnaire de fichiers a deux volets pour echanger des "
-            "fichiers entre Linux et une partition DOS sur carte SD, "
-            "via mtools."
+            "fichiers entre Linux et une partition DOS sur un lecteur "
+            "amovible, via mtools."
         ),
         "en": (
             "<b>mtools_gui</b><br>"
             "Version {version}<br>"
-            "Author: strider<br><br>"
+            "Author: Stephane Perez<br><br>"
             "Two-pane file manager for exchanging files between Linux "
-            "and a DOS partition on an SD card, via mtools."
+            "and a DOS partition on a removable drive, via mtools."
         ),
     },
     "err_helper_not_installed": {

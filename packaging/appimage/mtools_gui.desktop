@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=mtools_gui
+GenericName=DOS Partition File Manager
+Comment=Two-pane file manager for exchanging files between Linux and a DOS partition on a removable drive, via mtools
+Exec=mtools-gui
+Icon=mtools_gui
+Categories=Utility;FileManager;
+Terminal=false
+StartupNotify=true
