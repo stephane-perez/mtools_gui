@@ -1,0 +1,48 @@
+name: AppImage
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch: {}
+
+jobs:
+  build-appimage:
+    runs-on: ubuntu-22.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      # appimagetool (used internally by python-appimage) needs FUSE to
+      # mount itself - not installed by default on GitHub's runners.
+      - name: Install FUSE (needed to build/run an AppImage)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends libfuse2
+
+      - name: Build the AppImage
+        run: packaging/appimage/build.sh
+
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: mtools_gui-x86_64.AppImage
+          path: mtools_gui-x86_64.AppImage
+
+      # Only when triggered by a version tag (not a manual/dev run):
+      # publish the AppImage as a downloadable asset on a GitHub Release,
+      # matching what the README's install instructions point at.
+      - name: Attach to a GitHub Release
+        if: startsWith(github.ref, 'refs/tags/')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          TAG="${GITHUB_REF#refs/tags/}"
+          gh release create "$TAG" mtools_gui-x86_64.AppImage \
+            --title "$TAG" --generate-notes \
+            || gh release upload "$TAG" mtools_gui-x86_64.AppImage --clobber

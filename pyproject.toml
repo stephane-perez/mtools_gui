@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "mtools-gui"
-version = "0.3.0"
+version = "0.4.0"
 description = "Two-pane file manager for exchanging files between Linux and a DOS/FAT partition on a removable drive, via mtools."
 readme = "README.md"
 requires-python = ">=3.10"
@@ -17,6 +17,9 @@ dependencies = [
     # roughly doubles the install/download size for no benefit.
     "PySide6-Essentials>=6.6",
 ]
+
+[project.optional-dependencies]
+test = ["pytest>=7"]
 
 [project.scripts]
 mtools-gui = "mtools_gui.app:main"
