@@ -1,14 +1,17 @@
 #!/usr/bin/env bash
 # Build a portable AppImage for mtools_gui.
 #
-# PySide6 is pinned here to the last release built against
-# manylinux_2_28 (glibc >= 2.28 - Ubuntu 18.10+/20.04/22.04, Debian 10+,
-# Fedora 29+, etc.), NOT the unbounded ">=6.6" from pyproject.toml:
-# PySide6 6.10+ switched to manylinux_2_34, which would make the
-# resulting AppImage require a much newer host glibc and defeat the
-# point of a portable, distro-agnostic package. Re-check this pin
-# whenever bumping PySide6 (see the version-tag survey in the project's
-# packaging notes/plan history if it needs redoing).
+# PySide6-Essentials (not the full "PySide6" meta-package - see
+# pyproject.toml's dependencies comment: we never import PySide6-Addons,
+# which roughly doubles the size for nothing) is pinned here to the last
+# release built against manylinux_2_28 (glibc >= 2.28 -
+# Ubuntu 18.10+/20.04/22.04, Debian 10+, Fedora 29+, etc.), NOT the
+# unbounded ">=6.6" from pyproject.toml: PySide6 6.10+ switched to
+# manylinux_2_34, which would make the resulting AppImage require a much
+# newer host glibc and defeat the point of a portable, distro-agnostic
+# package. Re-check this pin whenever bumping PySide6 (see the
+# version-tag survey in the project's packaging notes/plan history if it
+# needs redoing).
 #
 # Usage: packaging/appimage/build.sh
 # Output: mtools_gui-x86_64.AppImage in the repo root.
@@ -17,7 +20,7 @@ set -euo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT="$(cd "$HERE/../.." && pwd)"
-PYSIDE6_PIN="PySide6==6.9.3"
+PYSIDE6_PIN="PySide6-Essentials==6.9.3"
 PYTHON_VERSION="3.12"
 
 cd "$ROOT"
