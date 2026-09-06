@@ -82,6 +82,17 @@ EXTRA_ALLOWED_ROOTS = ("/media", "/run/media", "/mnt")
 
 HELPER_ENV = {"LC_ALL": "C", "PATH": "/usr/bin:/bin"}
 
+# Keep in sync with mtools_client.HELPER_TIMEOUT_SECONDS/
+# HELPER_COPY_TIMEOUT_SECONDS (duplicated on purpose: this file must stay
+# stdlib-only and standalone). mdir/mdel/mmd/... only ever touch
+# metadata and should always be near-instant; mcopy legitimately scales
+# with how much data is being moved, so it gets a much longer allowance -
+# this only exists to catch a truly wedged device, not to bound ordinary
+# large transfers.
+MTOOLS_TIMEOUT_SECONDS = 60
+MTOOLS_COPY_TIMEOUT_SECONDS = 600
+LSBLK_TIMEOUT_SECONDS = 5
+
 
 class ValidationError(Exception):
     pass
@@ -104,9 +115,12 @@ def _lsblk_row(device: str) -> dict:
             capture_output=True,
             text=True,
             env=HELPER_ENV,
+            timeout=LSBLK_TIMEOUT_SECONDS,
         )
     except FileNotFoundError as exc:
         raise ValidationError(f"lsblk introuvable : {exc}") from exc
+    except subprocess.TimeoutExpired as exc:
+        raise ValidationError(f"lsblk n'a pas repondu pour {device} : {exc}") from exc
     if proc.returncode != 0:
         raise ValidationError(f"lsblk a echoue pour {device} : {proc.stderr.strip()}")
     try:
@@ -163,25 +177,42 @@ def validate_device(device: str) -> str:
     return resolved
 
 
-def _invoking_home_dir() -> str | None:
+def _invoking_pwd_entry():
     uid = os.environ.get("PKEXEC_UID")
     if uid is None:
         return None
     try:
-        return pwd.getpwuid(int(uid)).pw_dir
+        return pwd.getpwuid(int(uid))
     except (ValueError, KeyError):
         return None
+
+
+def _invoking_home_dir() -> str | None:
+    pw = _invoking_pwd_entry()
+    return pw.pw_dir if pw else None
 
 
 def _invoking_identity() -> tuple[int, int] | None:
-    uid = os.environ.get("PKEXEC_UID")
-    if uid is None:
-        return None
-    try:
-        pw = pwd.getpwuid(int(uid))
-    except (ValueError, KeyError):
-        return None
-    return pw.pw_uid, pw.pw_gid
+    pw = _invoking_pwd_entry()
+    return (pw.pw_uid, pw.pw_gid) if pw else None
+
+
+def _invoking_username() -> str | None:
+    pw = _invoking_pwd_entry()
+    return pw.pw_name if pw else None
+
+
+def _extra_allowed_roots(username: str | None) -> tuple[str, ...]:
+    """/media and /run/media follow the desktop-automount convention of
+    one subdirectory per user; scoping them to the invoking user's own
+    name stops this helper from touching another local user's already-
+    mounted media. /mnt has no such per-user convention on a personal
+    machine (a root-owned mount point), so it stays shared."""
+    roots = ["/mnt"]
+    if username:
+        roots.append(f"/media/{username}")
+        roots.append(f"/run/media/{username}")
+    return tuple(roots)
 
 
 def _chown_recursive(path: str, uid: int, gid: int) -> None:
@@ -198,7 +229,12 @@ def _chown_recursive(path: str, uid: int, gid: int) -> None:
                     pass
 
 
-def _hand_back_ownership(op: str, resolved_args: list[str]) -> None:
+def _hand_back_ownership(
+    op: str,
+    resolved_args: list[str],
+    home_dir: str | None = None,
+    extra_roots: tuple[str, ...] | None = None,
+) -> None:
     """After a successful mcopy, any Unix-side path it touched was
     created/written as root - give it back to the invoking user so they
     can actually manage their own copied files."""
@@ -207,9 +243,23 @@ def _hand_back_ownership(op: str, resolved_args: list[str]) -> None:
     identity = _invoking_identity()
     if identity is None:
         return
+    if home_dir is None:
+        home_dir = _invoking_home_dir()
+    if extra_roots is None:
+        extra_roots = _extra_allowed_roots(_invoking_username())
     uid, gid = identity
     for arg in resolved_args:
         if arg.startswith("::"):
+            continue
+        # Re-check the path is still one we're allowed to touch right
+        # before chown-ing it: the window between the initial
+        # validate_args() call (before mcopy ran) and this point (after
+        # it succeeded) is the TOCTOU gap the external security review
+        # flagged as its top concern - this doesn't close it entirely
+        # (a component could still be swapped between this check and the
+        # chown itself), but shrinks it from "the whole mcopy duration"
+        # to "a few syscalls".
+        if not is_allowed_unix_path(arg, home_dir, extra_roots):
             continue
         if os.path.exists(arg):
             _chown_recursive(arg, uid, gid)
@@ -227,12 +277,19 @@ def is_allowed_unix_path(path: str, home_dir: str | None, extra_roots=EXTRA_ALLO
     return False
 
 
-def validate_args(op: str, args: list[str], home_dir: str | None = None) -> list[str]:
+def validate_args(
+    op: str,
+    args: list[str],
+    home_dir: str | None = None,
+    extra_roots: tuple[str, ...] | None = None,
+) -> list[str]:
     """Returns the argument list to actually pass to the mtools binary
     (Unix-side paths are replaced by their resolved realpath), or raises
     ValidationError."""
     if home_dir is None:
         home_dir = _invoking_home_dir()
+    if extra_roots is None:
+        extra_roots = _extra_allowed_roots(_invoking_username())
 
     resolved_args = []
     for arg in args:
@@ -247,7 +304,7 @@ def validate_args(op: str, args: list[str], home_dir: str | None = None) -> list
             raise ValidationError(
                 f"{op} n'accepte que des chemins '::' internes a l'image, recu : {arg}"
             )
-        if not is_allowed_unix_path(arg, home_dir):
+        if not is_allowed_unix_path(arg, home_dir, extra_roots):
             raise ValidationError(f"chemin Unix non autorise : {arg}")
         resolved_args.append(os.path.realpath(arg))
     return resolved_args
@@ -264,9 +321,12 @@ def main(argv: list[str]) -> int:
         print(f"USAGE_ERROR: operation non autorisee : {op}", file=sys.stderr)
         return 3
 
+    home_dir = _invoking_home_dir()
+    extra_roots = _extra_allowed_roots(_invoking_username())
+
     try:
         resolved_device = validate_device(device)
-        resolved_args = validate_args(op, args)
+        resolved_args = validate_args(op, args, home_dir=home_dir, extra_roots=extra_roots)
     except ValidationError as exc:
         print(f"VALIDATION_ERROR: {exc}", file=sys.stderr)
         return 2
@@ -284,14 +344,20 @@ def main(argv: list[str]) -> int:
     extra_flags = ["-s"] if op == "mcopy" else []
     command = [binary, "-i", resolved_device, *extra_flags, *resolved_args]
 
+    timeout = MTOOLS_COPY_TIMEOUT_SECONDS if op == "mcopy" else MTOOLS_TIMEOUT_SECONDS
     try:
-        proc = subprocess.run(command, capture_output=True, text=True, env=HELPER_ENV)
+        proc = subprocess.run(
+            command, capture_output=True, text=True, env=HELPER_ENV, timeout=timeout
+        )
     except OSError as exc:
         print(f"USAGE_ERROR: impossible de lancer {binary} : {exc}", file=sys.stderr)
         return 3
+    except subprocess.TimeoutExpired:
+        print(f"TIMEOUT_ERROR: {binary} n'a pas repondu apres {timeout}s", file=sys.stderr)
+        return 4
 
     if proc.returncode == 0:
-        _hand_back_ownership(op, resolved_args)
+        _hand_back_ownership(op, resolved_args, home_dir=home_dir, extra_roots=extra_roots)
 
     sys.stdout.write(proc.stdout)
     sys.stderr.write(proc.stderr)

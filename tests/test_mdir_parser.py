@@ -18,6 +18,9 @@ DIR_WITH_EXTENSION_FIXTURE = (
 RAJOUNET_SUBDIR_FIXTURE = (
     Path(__file__).parent / "fixtures" / "mdir_sample_rajounet_subdir.txt"
 )
+LONG_FILENAME_FIXTURE = (
+    Path(__file__).parent / "fixtures" / "mdir_sample_long_filename.txt"
+)
 
 
 def _load_entries():
@@ -133,6 +136,24 @@ def test_directory_with_8_3_extension_is_not_dropped():
     names = {e.name for e in entries}
     assert names == {"RAJOUNET", "VDI_FX.68K", "TRAMIEL.68K"}
     assert all(e.is_dir for e in entries)
+
+
+def test_vfat_long_filename_entry_uses_the_long_name_not_the_8_3_alias():
+    # Regression test: a file whose real name doesn't fit 8.3 gets an
+    # extra trailing column in mdir's output (short alias, size, date,
+    # time, then the real long name) - e.g.
+    # "VID_20~1 MP4  192031009 2026-09-06  22:43  VID_20200713_220831.mp4".
+    # The entry regex used to be anchored to end right after the time
+    # field, so any line with something after it simply never matched -
+    # the file existed on the card (confirmed with a manual `mdir`) but
+    # silently never showed up in the GUI listing.
+    text = LONG_FILENAME_FIXTURE.read_text()
+    entries = parse_mdir_output(text)
+    names = {e.name for e in entries}
+    assert names == {"TRISORIP", "VID_20200713_220831.mp4"}
+    video = next(e for e in entries if e.name == "VID_20200713_220831.mp4")
+    assert video.is_dir is False
+    assert video.size == 192031009
 
 
 def test_subdirectory_full_of_dotted_directories_is_not_dropped():

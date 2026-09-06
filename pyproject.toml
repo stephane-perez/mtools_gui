@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "mtools-gui"
-version = "0.2.0"
+version = "0.3.0"
 description = "Two-pane file manager for exchanging files between Linux and a DOS/FAT partition on a removable drive, via mtools."
 readme = "README.md"
 requires-python = ">=3.10"

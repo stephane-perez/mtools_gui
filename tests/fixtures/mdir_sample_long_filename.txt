@@ -1,0 +1,8 @@
+ Volume in drive J has no label
+ Volume Serial Number is 6174-A565
+Directory for J:/
+
+TRISORIP     <DIR>     2026-09-06  22:43
+VID_20~1 MP4  192031009 2026-09-06  22:43  VID_20200713_220831.mp4
+        2 files         192 031 009 bytes
+                        958 173 184 bytes free

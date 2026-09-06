@@ -1,7 +1,7 @@
-"""tests/fixtures/lsblk_sample.json is real `lsblk -J` output captured on
-the development machine (internal disks, non-removable), with synthetic
-removable partitions added to exercise the positive cases - no real SD
-card was available to capture those parts:
+"""tests/fixtures/lsblk_sample.json is synthetic `lsblk -J`-shaped output
+(no real machine's disk layout - modeled on the shape of a typical desktop,
+internal disks non-removable) with synthetic removable partitions added to
+exercise the positive cases:
   - /dev/sde1: a recognized vfat partition (the "easy" case)
   - /dev/sdg1, /dev/sdg2: fstype=null partitions, standing in for a
     GEMDOS (Atari) card that Linux's own fstype detection doesn't

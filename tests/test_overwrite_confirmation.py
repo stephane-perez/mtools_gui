@@ -1,12 +1,15 @@
 """Copying/moving onto an existing same-named destination entry used to
 silently nest instead of replacing it (mcopy/mmove, and shutil.copytree
 without dirs_exist_ok, copy the source *inside* an existing destination
-directory rather than replacing it - e.g. copying folder ANKHA onto an
-already-present ANKHA produced ANKHA/ANKHA/* nested alongside ANKHA's old
+directory rather than replacing it - e.g. copying folder PHOTOS onto an
+already-present PHOTOS produced PHOTOS/PHOTOS/* nested alongside PHOTOS's old
 contents). Now: the destination is checked for conflicts, the user is
 asked to confirm, and on confirmation the existing destination entry is
-deleted before the copy/move runs. Headless (offscreen); the end-to-end
-test uses only local temp directories - no SD card or mtools involved.
+renamed to a backup name before the copy/move runs (not deleted outright -
+see _with_replace's docstring: a rename-then-restore-on-failure means a
+copy that fails partway through doesn't cost the user their original).
+Headless (offscreen); the end-to-end test uses only local temp
+directories - no SD card or mtools involved.
 """
 
 import os
@@ -37,17 +40,50 @@ def _entry(name, is_dir=False):
 # -- TransferService._with_replace -------------------------------------------
 
 
-def test_with_replace_deletes_destination_before_copying():
+def _fake_backend(calls):
+    return SimpleNamespace(
+        rename=lambda directory, old, new: calls.append(("rename", directory, old, new)),
+        delete=lambda directory, name, is_dir: calls.append(("delete", directory, name, is_dir)),
+    )
+
+
+def test_with_replace_renames_existing_entry_out_of_the_way_first():
     calls = []
-    existing = _entry("ANKHA", is_dir=True)
-    dst_backend = SimpleNamespace(delete=lambda *a: calls.append(("delete", a)))
+    existing = _entry("PHOTOS", is_dir=True)
+    dst_backend = _fake_backend(calls)
 
     wrapped = TransferService._with_replace(
         lambda: calls.append(("copy",)), dst_backend, "/dest_dir", existing
     )
     wrapped()
 
-    assert calls == [("delete", ("/dest_dir", "ANKHA", True)), ("copy",)]
+    assert calls == [
+        ("rename", "/dest_dir", "PHOTOS", ".mtools_gui_bak_PHOTOS"),
+        ("copy",),
+        ("delete", "/dest_dir", ".mtools_gui_bak_PHOTOS", True),
+    ]
+
+
+def test_with_replace_restores_the_backup_if_the_copy_fails():
+    calls = []
+    existing = _entry("PHOTOS", is_dir=True)
+    dst_backend = _fake_backend(calls)
+
+    def failing_copy():
+        raise OSError("card was pulled mid-copy")
+
+    wrapped = TransferService._with_replace(failing_copy, dst_backend, "/dest_dir", existing)
+
+    with pytest.raises(OSError, match="card was pulled"):
+        wrapped()
+
+    # the failed attempt is cleaned up, then the original is restored -
+    # the user still has their original PHOTOS, not nothing
+    assert calls == [
+        ("rename", "/dest_dir", "PHOTOS", ".mtools_gui_bak_PHOTOS"),
+        ("delete", "/dest_dir", "PHOTOS", True),
+        ("rename", "/dest_dir", ".mtools_gui_bak_PHOTOS", "PHOTOS"),
+    ]
 
 
 def test_with_replace_is_noop_when_nothing_to_replace():
@@ -55,6 +91,32 @@ def test_with_replace_is_noop_when_nothing_to_replace():
     wrapped = TransferService._with_replace(lambda: calls.append("copy"), None, "/x", None)
     wrapped()
     assert calls == ["copy"]
+
+
+def test_replace_end_to_end_survives_a_failed_copy(tmp_path):
+    # A LocalBackend<->LocalBackend rehearsal of the rollback: the
+    # destination's original content must still be there after a copy
+    # that fails partway through, not vanished.
+    src_dir = tmp_path / "src"
+    (src_dir / "PHOTOS").mkdir(parents=True)
+    (src_dir / "PHOTOS" / "f1.txt").write_text("from source")
+
+    dst_dir = tmp_path / "dst"
+    (dst_dir / "PHOTOS").mkdir(parents=True)
+    (dst_dir / "PHOTOS" / "existing.txt").write_text("precious original data")
+
+    backend = LocalBackend()
+    existing = _entry("PHOTOS", is_dir=True)
+
+    def failing_copy():
+        raise OSError("simulated failure partway through the copy")
+
+    wrapped = TransferService._with_replace(failing_copy, backend, str(dst_dir), existing)
+
+    with pytest.raises(OSError):
+        wrapped()
+
+    assert (dst_dir / "PHOTOS" / "existing.txt").read_text() == "precious original data"
 
 
 # -- main_window._transfer_entries: conflict detection + confirmation -------
@@ -74,7 +136,7 @@ def test_conflict_detected_asks_confirmation_and_passes_replace(window, monkeypa
     src = window.left_pane
     dst = window.right_pane
 
-    existing = _entry("ANKHA", is_dir=True)
+    existing = _entry("PHOTOS", is_dir=True)
     monkeypatch.setattr(dst, "backend", SimpleNamespace(list_dir=lambda path: [existing]))
 
     captured = {}
@@ -85,7 +147,7 @@ def test_conflict_detected_asks_confirmation_and_passes_replace(window, monkeypa
     )
     monkeypatch.setattr(QMessageBox, "question", staticmethod(lambda *a, **k: QMessageBox.Yes))
 
-    window._transfer_entries(src, dst, [_entry("ANKHA", is_dir=True)], move=False)
+    window._transfer_entries(src, dst, [_entry("PHOTOS", is_dir=True)], move=False)
 
     assert captured["kwargs"]["replace"] is existing
 
@@ -94,13 +156,13 @@ def test_conflict_declined_cancels_the_whole_transfer(window, monkeypatch):
     src = window.left_pane
     dst = window.right_pane
     monkeypatch.setattr(
-        dst, "backend", SimpleNamespace(list_dir=lambda path: [_entry("ANKHA", is_dir=True)])
+        dst, "backend", SimpleNamespace(list_dir=lambda path: [_entry("PHOTOS", is_dir=True)])
     )
     called = []
     monkeypatch.setattr(window.transfer_service, "copy", lambda *a, **k: called.append(True))
     monkeypatch.setattr(QMessageBox, "question", staticmethod(lambda *a, **k: QMessageBox.No))
 
-    window._transfer_entries(src, dst, [_entry("ANKHA", is_dir=True)], move=False)
+    window._transfer_entries(src, dst, [_entry("PHOTOS", is_dir=True)], move=False)
 
     assert called == []
 
@@ -123,26 +185,26 @@ def test_no_conflict_does_not_prompt_and_passes_replace_none(window, monkeypatch
     assert captured["kwargs"]["replace"] is None
 
 
-# -- End-to-end: reproduces the exact ANKHA nesting bug with local dirs -----
+# -- End-to-end: reproduces the exact PHOTOS nesting bug with local dirs -----
 
 
 def test_copying_a_folder_onto_an_existing_one_replaces_instead_of_nesting(
     window, monkeypatch, tmp_path
 ):
     src_dir = tmp_path / "src"
-    (src_dir / "ANKHA").mkdir(parents=True)
-    (src_dir / "ANKHA" / "f1.txt").write_text("from source")
-    (src_dir / "ANKHA" / "f2.txt").write_text("from source")
+    (src_dir / "PHOTOS").mkdir(parents=True)
+    (src_dir / "PHOTOS" / "f1.txt").write_text("from source")
+    (src_dir / "PHOTOS" / "f2.txt").write_text("from source")
 
     dst_dir = tmp_path / "dst"
-    (dst_dir / "ANKHA").mkdir(parents=True)
-    (dst_dir / "ANKHA" / "existing.txt").write_text("pre-existing local file")
+    (dst_dir / "PHOTOS").mkdir(parents=True)
+    (dst_dir / "PHOTOS" / "existing.txt").write_text("pre-existing local file")
 
     window.left_pane.set_backend(LocalBackend(), str(src_dir))
     window.right_pane.set_backend(LocalBackend(), str(dst_dir))
     monkeypatch.setattr(QMessageBox, "question", staticmethod(lambda *a, **k: QMessageBox.Yes))
 
-    entries = window.left_pane.entries_by_names(["ANKHA"])
+    entries = window.left_pane.entries_by_names(["PHOTOS"])
     window._transfer_entries(window.left_pane, window.right_pane, entries, move=False)
 
     # let the background QRunnable finish
@@ -152,8 +214,8 @@ def test_copying_a_folder_onto_an_existing_one_replaces_instead_of_nesting(
     QTimer.singleShot(500, loop.quit)
     loop.exec()
 
-    result = {p.name for p in (dst_dir / "ANKHA").iterdir()}
-    # must be replaced (f1.txt, f2.txt only) - not nested (ANKHA/ANKHA/...)
+    result = {p.name for p in (dst_dir / "PHOTOS").iterdir()}
+    # must be replaced (f1.txt, f2.txt only) - not nested (PHOTOS/PHOTOS/...)
     # and not merged with the stale existing.txt
     assert result == {"f1.txt", "f2.txt"}
-    assert not (dst_dir / "ANKHA" / "ANKHA").exists()
+    assert not (dst_dir / "PHOTOS" / "PHOTOS").exists()

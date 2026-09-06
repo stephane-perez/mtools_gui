@@ -33,23 +33,23 @@ LANGUAGE = _detect_language()
 
 _STRINGS: dict[str, dict[str, str]] = {
     "window_title": {
-        "fr": "mtools_gui - echange Linux / lecteur DOS",
+        "fr": "mtools_gui - échange Linux / lecteur DOS",
         "en": "mtools_gui - exchange files between Linux and a DOS drive",
     },
-    "status_ready": {"fr": "Pret", "en": "Ready"},
-    "toolbar_refresh": {"fr": "Rafraichir (F5)", "en": "Refresh (F5)"},
+    "status_ready": {"fr": "Prêt", "en": "Ready"},
+    "toolbar_refresh": {"fr": "Rafraîchir (F5)", "en": "Refresh (F5)"},
     "toolbar_copy": {"fr": "Copier (Ctrl+C)", "en": "Copy (Ctrl+C)"},
-    "toolbar_move": {"fr": "Deplacer", "en": "Move"},
+    "toolbar_move": {"fr": "Déplacer", "en": "Move"},
     "toolbar_move_tooltip": {
-        "fr": "Deplacer (ou Alt+glisser-deposer)",
+        "fr": "Déplacer (ou Alt+glisser-déposer)",
         "en": "Move (or Alt+drag-and-drop)",
     },
     "toolbar_rename": {"fr": "Renommer (F2)", "en": "Rename (F2)"},
     "toolbar_delete": {"fr": "Supprimer (Suppr)", "en": "Delete (Del)"},
     "toolbar_mkdir": {"fr": "Nouveau dossier (Ctrl+N)", "en": "New folder (Ctrl+N)"},
-    "toolbar_about": {"fr": "A propos", "en": "About"},
+    "toolbar_about": {"fr": "À propos", "en": "About"},
     "drive_label": {"fr": "Lecteur DOS :", "en": "DOS drive:"},
-    "drive_refresh_button": {"fr": "Rafraichir lecteurs", "en": "Refresh drives"},
+    "drive_refresh_button": {"fr": "Rafraîchir lecteurs", "en": "Refresh drives"},
     "drive_placeholder": {"fr": "(choisir un lecteur)", "en": "(choose a drive)"},
     "drive_unknown_fstype": {
         "fr": "type inconnu - probablement DOS",
@@ -59,23 +59,29 @@ _STRINGS: dict[str, dict[str, str]] = {
     "pane_up_button": {"fr": "Remonter", "en": "Up"},
     "column_name": {"fr": "Nom", "en": "Name"},
     "column_size": {"fr": "Taille", "en": "Size"},
-    "column_modified": {"fr": "Modifie", "en": "Modified"},
+    "column_modified": {"fr": "Modifié", "en": "Modified"},
     "size_bytes": {"fr": "o", "en": "B"},
     "size_kb": {"fr": "Ko", "en": "KB"},
     "size_mb": {"fr": "Mo", "en": "MB"},
     "size_gb": {"fr": "Go", "en": "GB"},
     "confirm_delete_title": {"fr": "Confirmer la suppression", "en": "Confirm delete"},
     "confirm_delete_text": {"fr": "Supprimer : {names} ?", "en": "Delete: {names}?"},
-    "confirm_move_title": {"fr": "Confirmer le deplacement", "en": "Confirm move"},
+    "names_truncated": {
+        "fr": "{shown}, ... et {count} de plus",
+        "en": "{shown}, ... and {count} more",
+    },
+    "side_left": {"fr": "gauche", "en": "left"},
+    "side_right": {"fr": "droite", "en": "right"},
+    "confirm_move_title": {"fr": "Confirmer le déplacement", "en": "Confirm move"},
     "confirm_move_text": {
-        "fr": "Deplacer vers {side} : {names} ?",
+        "fr": "Déplacer vers {side} : {names} ?",
         "en": "Move to {side}: {names}?",
     },
     "confirm_overwrite_title": {"fr": "Confirmer le remplacement", "en": "Confirm overwrite"},
     "confirm_overwrite_text": {
         "fr": (
-            "Existe deja a destination et sera remplace : {names}\n\n"
-            "(le contenu actuel sera supprime avant la copie)"
+            "Existe déjà à destination et sera remplacé : {names}\n\n"
+            "(le contenu actuel sera supprimé avant la copie)"
         ),
         "en": (
             "Already exists at the destination and will be replaced: {names}\n\n"
@@ -87,20 +93,20 @@ _STRINGS: dict[str, dict[str, str]] = {
         "en": "Choose a DOS drive first",
     },
     "status_select_one_to_rename": {
-        "fr": "Selectionnez un seul element a renommer",
+        "fr": "Sélectionnez un seul élément à renommer",
         "en": "Select exactly one item to rename",
     },
-    "status_op_done": {"fr": "{description} : termine", "en": "{description}: done"},
+    "status_op_done": {"fr": "{description} : terminé", "en": "{description}: done"},
     "status_in_progress_one": {
         "fr": "{description} en cours...",
         "en": "{description} in progress...",
     },
     "status_in_progress_many": {
-        "fr": "{count} operations en cours...",
+        "fr": "{count} opérations en cours...",
         "en": "{count} operations in progress...",
     },
     "op_copy": {"fr": "Copier {name}", "en": "Copy {name}"},
-    "op_move": {"fr": "Deplacer {name}", "en": "Move {name}"},
+    "op_move": {"fr": "Déplacer {name}", "en": "Move {name}"},
     "op_delete": {"fr": "Supprimer {name}", "en": "Delete {name}"},
     "op_mkdir": {"fr": "Nouveau dossier {name}", "en": "New folder {name}"},
     "op_rename": {"fr": "Renommer {name}", "en": "Rename {name}"},
@@ -115,11 +121,11 @@ _STRINGS: dict[str, dict[str, str]] = {
     },
     "dialog_install_required_text": {
         "fr": (
-            "Le helper privilegie n'est pas encore installe.\n\n"
+            "Le helper privilégié n'est pas encore installé.\n\n"
             "Cliquez sur \"Installer maintenant\" (demandera votre mot de "
             "passe), ou lancez une fois manuellement dans un terminal :\n"
             "  {command}\n\n"
-            "Le volet gauche (fichiers locaux) fonctionne deja sans cela."
+            "Le volet gauche (fichiers locaux) fonctionne déjà sans cela."
         ),
         "en": (
             "The privileged helper isn't installed yet.\n\n"
@@ -131,57 +137,61 @@ _STRINGS: dict[str, dict[str, str]] = {
     },
     "install_now_button": {"fr": "Installer maintenant", "en": "Install now"},
     "install_later_button": {"fr": "Plus tard", "en": "Later"},
-    "install_success_title": {"fr": "Installation reussie", "en": "Installation succeeded"},
+    "install_success_title": {"fr": "Installation réussie", "en": "Installation succeeded"},
     "install_success_text": {
-        "fr": "Le helper privilegie est maintenant installe.",
+        "fr": "Le helper privilégié est maintenant installé.",
         "en": "The privileged helper is now installed.",
     },
     "install_auth_cancelled": {
-        "fr": "Installation annulee (authentification refusee).",
+        "fr": "Installation annulée (authentification refusée).",
         "en": "Installation cancelled (authentication refused).",
     },
     "install_failed_text": {
-        "fr": "Echec de l'installation : {error}",
+        "fr": "Échec de l'installation : {error}",
         "en": "Installation failed: {error}",
     },
-    "about_title": {"fr": "A propos de mtools_gui", "en": "About mtools_gui"},
+    "about_title": {"fr": "À propos de mtools_gui", "en": "About mtools_gui"},
     "about_text": {
         "fr": (
             "<b>mtools_gui</b><br>"
             "Version {version}<br>"
-            "Auteur : Stephane Perez<br><br>"
-            "Gestionnaire de fichiers a deux volets pour echanger des "
+            "Auteur : Stéphane Perez<br><br>"
+            "Gestionnaire de fichiers à deux volets pour échanger des "
             "fichiers entre Linux et une partition DOS sur un lecteur "
             "amovible, via mtools."
         ),
         "en": (
             "<b>mtools_gui</b><br>"
             "Version {version}<br>"
-            "Author: Stephane Perez<br><br>"
+            "Author: Stéphane Perez<br><br>"
             "Two-pane file manager for exchanging files between Linux "
             "and a DOS partition on a removable drive, via mtools."
         ),
     },
     "err_helper_not_installed": {
-        "fr": "Le helper privilegie n'est pas installe. Lancez une fois : {command}",
+        "fr": "Le helper privilégié n'est pas installé. Lancez une fois : {command}",
         "en": "The privileged helper isn't installed. Run this once: {command}",
     },
     "err_auth_dismissed": {
-        "fr": "Authentification refusee ou annulee.",
+        "fr": "Authentification refusée ou annulée.",
         "en": "Authentication refused or dismissed.",
     },
     "err_validation_default": {
-        "fr": "Operation rejetee par le helper.",
+        "fr": "Opération rejetée par le helper.",
         "en": "Operation rejected by the helper.",
     },
     "err_usage_default": {"fr": "Erreur d'usage du helper.", "en": "Helper usage error."},
     "err_command_default": {
-        "fr": "Echec de la commande {op}.",
+        "fr": "Échec de la commande {op}.",
         "en": "Command {op} failed.",
     },
     "err_pkexec_not_found": {
-        "fr": "pkexec introuvable sur ce systeme.",
+        "fr": "pkexec introuvable sur ce système.",
         "en": "pkexec not found on this system.",
+    },
+    "err_helper_timeout": {
+        "fr": "{op} n'a pas répondu après {timeout}s (périphérique bloqué ou déconnecté ?).",
+        "en": "{op} did not respond after {timeout}s (is the device stuck or disconnected?).",
     },
     "op_unexpected_error": {
         "fr": "Erreur inattendue : {error}",
@@ -193,8 +203,18 @@ _STRINGS: dict[str, dict[str, str]] = {
         "en": "Unknown pane combination",
     },
     "err_unknown_pane_combination_move": {
-        "fr": "Combinaison de volets inconnue pour un deplacement croise",
+        "fr": "Combinaison de volets inconnue pour un déplacement croisé",
         "en": "Unknown pane combination for a cross-side move",
+    },
+    "move_copied_but_source_delete_failed": {
+        "fr": (
+            "{name} a été copié, mais l'original n'a pas pu être supprimé "
+            "de la source : {error}. Les deux copies existent maintenant."
+        ),
+        "en": (
+            "{name} was copied, but the original could not be removed "
+            "from the source: {error}. Both copies now exist."
+        ),
     },
     "view_dialog_read_error": {
         "fr": "Lecture de {name} : {error}",
@@ -202,7 +222,7 @@ _STRINGS: dict[str, dict[str, str]] = {
     },
     "install_need_root": {
         "fr": (
-            "Ce programme doit etre execute en root, par exemple :\n"
+            "Ce programme doit être exécuté en root, par exemple :\n"
             '  sudo "$(command -v mtools-gui-install-helper)"'
         ),
         "en": (
@@ -210,12 +230,12 @@ _STRINGS: dict[str, dict[str, str]] = {
             '  sudo "$(command -v mtools-gui-install-helper)"'
         ),
     },
-    "install_installed": {"fr": "Installe : {path}", "en": "Installed: {path}"},
-    "install_removed": {"fr": "Supprime : {path}", "en": "Removed: {path}"},
-    "install_already_absent": {"fr": "Deja absent : {path}", "en": "Already absent: {path}"},
+    "install_installed": {"fr": "Installé : {path}", "en": "Installed: {path}"},
+    "install_removed": {"fr": "Supprimé : {path}", "en": "Removed: {path}"},
+    "install_already_absent": {"fr": "Déjà absent : {path}", "en": "Already absent: {path}"},
     "install_verify_hint": {
         "fr": (
-            "\nVerification recommandee (depuis un terminal de la session active) :\n"
+            "\nVérification recommandée (depuis un terminal de la session active) :\n"
             "  pkexec {helper_path} mdir /dev/sdX1 ::\n"
             "ne devrait demander aucun mot de passe."
         ),

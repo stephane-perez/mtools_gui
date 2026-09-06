@@ -62,7 +62,7 @@ def test_is_removable_false_when_sysfs_disagrees(helper):
 
 
 def test_path_under_home_is_allowed(helper, tmp_path):
-    home = tmp_path / "home" / "steph"
+    home = tmp_path / "home" / "testuser"
     home.mkdir(parents=True)
     target = home / "file.txt"
     target.write_text("x")
@@ -70,7 +70,7 @@ def test_path_under_home_is_allowed(helper, tmp_path):
 
 
 def test_path_outside_home_and_media_roots_is_rejected(helper, tmp_path):
-    home = tmp_path / "home" / "steph"
+    home = tmp_path / "home" / "testuser"
     home.mkdir(parents=True)
     outside = tmp_path / "etc" / "shadow"
     outside.parent.mkdir(parents=True)
@@ -79,7 +79,7 @@ def test_path_outside_home_and_media_roots_is_rejected(helper, tmp_path):
 
 
 def test_path_under_extra_root_is_allowed(helper, tmp_path):
-    media_root = tmp_path / "media" / "steph"
+    media_root = tmp_path / "media" / "testuser"
     media_root.mkdir(parents=True)
     target = media_root / "card" / "file.txt"
     target.parent.mkdir(parents=True)
@@ -90,16 +90,37 @@ def test_path_under_extra_root_is_allowed(helper, tmp_path):
     )
 
 
+# -- _extra_allowed_roots -----------------------------------------------------
+
+
+def test_extra_allowed_roots_scopes_media_to_the_given_username(helper):
+    roots = helper._extra_allowed_roots("testuser")
+    assert "/media/testuser" in roots
+    assert "/run/media/testuser" in roots
+    assert "/mnt" in roots
+
+
+def test_extra_allowed_roots_excludes_another_users_media(helper):
+    roots = helper._extra_allowed_roots("testuser")
+    assert helper.is_allowed_unix_path("/media/otheruser/SDCARD", None, roots) is False
+    assert helper.is_allowed_unix_path("/media/testuser/SDCARD", None, roots) is True
+
+
+def test_extra_allowed_roots_without_username_still_allows_mnt(helper):
+    roots = helper._extra_allowed_roots(None)
+    assert roots == ("/mnt",)
+
+
 # -- validate_args -----------------------------------------------------------
 
 
 def test_non_mcopy_op_rejects_unix_path(helper):
     with pytest.raises(helper.ValidationError):
-        helper.validate_args("mdir", ["/etc/shadow"], home_dir="/home/steph")
+        helper.validate_args("mdir", ["/etc/shadow"], home_dir="/home/testuser")
 
 
 def test_non_mcopy_op_accepts_dos_path(helper):
-    result = helper.validate_args("mdir", ["::/SUBDIR"], home_dir="/home/steph")
+    result = helper.validate_args("mdir", ["::/SUBDIR"], home_dir="/home/testuser")
     assert result == ["::/SUBDIR"]
 
 
@@ -112,7 +133,7 @@ def test_mcopy_rejects_path_outside_allowed_roots(helper, tmp_path):
 
 
 def test_mcopy_accepts_path_under_home(helper, tmp_path):
-    home = tmp_path / "home" / "steph"
+    home = tmp_path / "home" / "testuser"
     home.mkdir(parents=True)
     source = home / "photo.jpg"
     source.write_text("data")
@@ -123,7 +144,7 @@ def test_mcopy_accepts_path_under_home(helper, tmp_path):
 
 def test_unrecognised_flag_argument_is_rejected(helper):
     with pytest.raises(helper.ValidationError):
-        helper.validate_args("mcopy", ["-s", "::x"], home_dir="/home/steph")
+        helper.validate_args("mcopy", ["-s", "::x"], home_dir="/home/testuser")
 
 
 # -- validate_device (subprocess mocked) --------------------------------------
@@ -156,7 +177,7 @@ def test_validate_device_rejects_already_mounted(helper, monkeypatch):
                     "pkname": "sde",
                     "rm": True,
                     "fstype": "vfat",
-                    "mountpoint": "/media/steph/SDCARD",
+                    "mountpoint": "/media/testuser/SDCARD",
                 }
             ]
         }
@@ -255,7 +276,7 @@ def test_invoking_identity_none_without_pkexec_uid(helper, monkeypatch):
 def test_invoking_identity_resolves_uid_and_gid(helper, monkeypatch):
     monkeypatch.setenv("PKEXEC_UID", "1000")
     monkeypatch.setattr(
-        helper.pwd, "getpwuid", lambda uid: SimpleNamespace(pw_uid=1000, pw_gid=1000, pw_dir="/home/steph")
+        helper.pwd, "getpwuid", lambda uid: SimpleNamespace(pw_uid=1000, pw_gid=1000, pw_dir="/home/testuser")
     )
     assert helper._invoking_identity() == (1000, 1000)
 
@@ -293,9 +314,30 @@ def test_hand_back_ownership_only_touches_unix_side_paths(helper, tmp_path, monk
     chowned = []
     monkeypatch.setattr(helper, "_chown_recursive", lambda path, uid, gid: chowned.append(path))
 
-    helper._hand_back_ownership("mcopy", ["::/DEMOS", str(dest)])
+    helper._hand_back_ownership(
+        "mcopy", ["::/DEMOS", str(dest)], home_dir=str(tmp_path), extra_roots=()
+    )
 
     assert chowned == [str(dest)]
+
+
+def test_hand_back_ownership_skips_a_path_that_no_longer_validates(helper, tmp_path, monkeypatch):
+    # Re-validation immediately before chown is the TOCTOU-shrinking check
+    # from the security review: if the path no longer resolves under an
+    # allowed root (home dir or scoped media root), skip the chown rather
+    # than trusting the validation done before mcopy ran.
+    dest = tmp_path / "DEMOS"
+    dest.mkdir()
+
+    monkeypatch.setattr(helper, "_invoking_identity", lambda: (1000, 1000))
+    chowned = []
+    monkeypatch.setattr(helper, "_chown_recursive", lambda path, uid, gid: chowned.append(path))
+
+    helper._hand_back_ownership(
+        "mcopy", ["::/DEMOS", str(dest)], home_dir=None, extra_roots=()
+    )
+
+    assert chowned == []
 
 
 def test_hand_back_ownership_is_noop_for_non_mcopy_ops(helper, monkeypatch):
@@ -325,7 +367,7 @@ def _stub_validated_device(helper, monkeypatch, device="/dev/sde1"):
 
 def test_mcopy_command_includes_recursive_flag(helper, monkeypatch, tmp_path):
     _stub_validated_device(helper, monkeypatch)
-    monkeypatch.setattr(helper, "validate_args", lambda op, args: args)
+    monkeypatch.setattr(helper, "validate_args", lambda op, args, **kwargs: args)
     captured = {}
 
     def fake_run(command, **kwargs):
@@ -333,7 +375,7 @@ def test_mcopy_command_includes_recursive_flag(helper, monkeypatch, tmp_path):
         return SimpleNamespace(returncode=0, stdout="", stderr="")
 
     monkeypatch.setattr(helper.subprocess, "run", fake_run)
-    monkeypatch.setattr(helper, "_hand_back_ownership", lambda *a: None)
+    monkeypatch.setattr(helper, "_hand_back_ownership", lambda *a, **k: None)
 
     helper.main(["mtools-gui-helper", "mcopy", "/dev/sde1", "::/DEMOS", str(tmp_path)])
 
@@ -342,7 +384,7 @@ def test_mcopy_command_includes_recursive_flag(helper, monkeypatch, tmp_path):
 
 def test_non_mcopy_command_has_no_recursive_flag(helper, monkeypatch):
     _stub_validated_device(helper, monkeypatch)
-    monkeypatch.setattr(helper, "validate_args", lambda op, args: args)
+    monkeypatch.setattr(helper, "validate_args", lambda op, args, **kwargs: args)
     captured = {}
 
     def fake_run(command, **kwargs):

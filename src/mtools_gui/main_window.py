@@ -36,6 +36,31 @@ from .transfer_service import TransferService
 
 logger = logging.getLogger(__name__)
 
+# A multi-select delete/move/overwrite on a folder with hundreds of
+# entries used to dump the whole comma-joined list into the confirmation
+# dialog - readable for a handful of files, but an unusable wall of text
+# (and a dialog stretched off-screen) once selection sizes got large.
+# Capped at a character count rather than a line count: QMessageBox wraps
+# based on the window's width, which this code doesn't control, so a
+# "3 lines" target can't be enforced directly - a character budget is the
+# closest deterministic equivalent.
+_NAME_LIST_CHAR_LIMIT = 200
+
+
+def _format_name_list_for_dialog(names: list[str]) -> str:
+    joined = ", ".join(names)
+    if len(joined) <= _NAME_LIST_CHAR_LIMIT:
+        return joined
+    kept: list[str] = []
+    length = 0
+    for name in names:
+        addition = len(name) + (2 if kept else 0)  # ", " separator
+        if kept and length + addition > _NAME_LIST_CHAR_LIMIT:
+            break
+        kept.append(name)
+        length += addition
+    return _("names_truncated", shown=", ".join(kept), count=len(names) - len(kept))
+
 
 class MainWindow(QMainWindow):
     def __init__(self):
@@ -289,7 +314,13 @@ class MainWindow(QMainWindow):
         if move:
             names = ", ".join(e.name for e in entries)
             if QMessageBox.question(
-                self, _("confirm_move_title"), _("confirm_move_text", side=dst.side, names=names)
+                self,
+                _("confirm_move_title"),
+                _(
+                    "confirm_move_text",
+                    side=_("side_left" if dst.side == "left" else "side_right"),
+                    names=_format_name_list_for_dialog([e.name for e in entries]),
+                ),
             ) != QMessageBox.Yes:
                 logger.info("Move cancelled by the user: %s", names)
                 return
@@ -310,7 +341,9 @@ class MainWindow(QMainWindow):
         if conflicts:
             names = ", ".join(conflicts)
             if QMessageBox.question(
-                self, _("confirm_overwrite_title"), _("confirm_overwrite_text", names=names)
+                self,
+                _("confirm_overwrite_title"),
+                _("confirm_overwrite_text", names=_format_name_list_for_dialog(list(conflicts))),
             ) != QMessageBox.Yes:
                 logger.info("Overwrite cancelled by the user: %s", names)
                 return
@@ -336,7 +369,9 @@ class MainWindow(QMainWindow):
             return
         names = ", ".join(e.name for e in entries)
         if QMessageBox.question(
-            self, _("confirm_delete_title"), _("confirm_delete_text", names=names)
+            self,
+            _("confirm_delete_title"),
+            _("confirm_delete_text", names=_format_name_list_for_dialog([e.name for e in entries])),
         ) != QMessageBox.Yes:
             logger.info("Delete cancelled by the user: %s", names)
             return

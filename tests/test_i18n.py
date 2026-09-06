@@ -24,7 +24,7 @@ def _reload_with_lang(lang: str | None):
 def test_french_override_selects_french_strings():
     mod = _reload_with_lang("fr")
     assert mod.LANGUAGE == "fr"
-    assert mod._("status_ready") == "Pret"
+    assert mod._("status_ready") == "Prêt"
 
 
 def test_english_override_selects_english_strings():

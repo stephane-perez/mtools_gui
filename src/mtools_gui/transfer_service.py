@@ -5,7 +5,7 @@ of backends (local filesystem vs. DOS-via-mtools) is involved.
 
 from __future__ import annotations
 
-from pathlib import PurePosixPath
+import threading
 
 from PySide6.QtCore import QObject, QRunnable, QThreadPool, Signal
 
@@ -63,6 +63,45 @@ class TransferService(QObject):
         # hit. Keeping an explicit Python reference for the task's full
         # lifetime closes that race.
         self._active_tasks: list[_CallableTask] = []
+        # One lock per DOS device path, created lazily. Nothing serialized
+        # two mtools invocations against the same device before this -
+        # e.g. a fast double-submit (multi-select copy, or a delete
+        # landing while a copy is still running) could run mcopy/mdel
+        # concurrently against the same FAT volume, which mtools/FAT was
+        # never designed to tolerate. LocalBackend isn't tracked here:
+        # ordinary filesystem operations on different files don't share
+        # this failure mode, and serializing them too would only cost
+        # responsiveness for no real benefit.
+        self._device_locks: dict[str, threading.Lock] = {}
+        self._device_locks_guard = threading.Lock()
+
+    def _lock_for_device(self, device: str) -> threading.Lock:
+        with self._device_locks_guard:
+            lock = self._device_locks.get(device)
+            if lock is None:
+                lock = threading.Lock()
+                self._device_locks[device] = lock
+            return lock
+
+    def _with_device_lock(self, func, *backends: Backend):
+        # Sorted so two operations naming the same two devices in
+        # opposite order (src/dst swapped) always acquire them in the
+        # same order, avoiding a deadlock between them.
+        devices = sorted({b.device for b in backends if isinstance(b, DosBackend)})
+        if not devices:
+            return func
+        locks = [self._lock_for_device(d) for d in devices]
+
+        def wrapped():
+            for lock in locks:
+                lock.acquire()
+            try:
+                func()
+            finally:
+                for lock in reversed(locks):
+                    lock.release()
+
+        return wrapped
 
     def _submit(self, description: str, sides: str, func) -> None:
         task = _CallableTask(func)
@@ -124,6 +163,7 @@ class TransferService(QObject):
             raise TypeError(_("err_unknown_pane_combination"))
 
         func = self._with_replace(func, dst_backend, dst_dir, replace)
+        func = self._with_device_lock(func, src_backend, dst_backend)
         self._submit(description, sides, func)
 
     def move(
@@ -150,32 +190,64 @@ class TransferService(QObject):
             func = lambda: src_backend.move_within(src_dir, entry.name, dst_dir)
         else:
             # Moving across the Linux/DOS boundary: mmove can't cross it
-            # (see man mmove), so this is copy-then-delete-source.
+            # (see man mmove), so this is copy-then-delete-source. If
+            # _blocking_copy itself raises, delete is never reached - the
+            # source is untouched, which is already correct. The gap was
+            # the other way: if the copy *succeeds* but deleting the
+            # source then fails (e.g. the card was pulled mid-operation),
+            # that surfaced as a generic "Move failed", indistinguishable
+            # from a move that never copied anything - misleading, since
+            # the data is safe (now in both places) rather than lost.
             def func():
                 self._blocking_copy(
                     src_backend, src_dir, entry, dst_backend, dst_dir
                 )
-                src_backend.delete(src_dir, entry.name, entry.is_dir)
+                try:
+                    src_backend.delete(src_dir, entry.name, entry.is_dir)
+                except Exception as exc:
+                    raise MtoolsClientError(
+                        _("move_copied_but_source_delete_failed", name=entry.name, error=exc)
+                    ) from exc
 
         func = self._with_replace(func, dst_backend, dst_dir, replace)
+        func = self._with_device_lock(func, src_backend, dst_backend)
         self._submit(description, sides, func)
 
     @staticmethod
     def _with_replace(func, dst_backend: Backend, dst_dir: str, replace: Entry | None):
-        """Wrap func so an existing same-named destination entry is
-        deleted first. mcopy/mmove (and shutil.copytree without
-        dirs_exist_ok) treat an *existing* destination directory as "copy
-        source inside it" rather than "replace it" - e.g. copying a
-        folder ANKHA onto an already-present ANKHA silently produced
-        ANKHA/ANKHA/* nested alongside ANKHA's old contents instead of
-        replacing them. Deleting the destination first guarantees a
-        clean copy/move regardless of backend."""
+        """Wrap func so an existing same-named destination entry is out
+        of the way before it runs. mcopy/mmove (and shutil.copytree
+        without dirs_exist_ok) treat an *existing* destination directory
+        as "copy source inside it" rather than "replace it" - e.g.
+        copying a folder PHOTOS onto an already-present PHOTOS silently
+        produced PHOTOS/PHOTOS/* nested alongside PHOTOS's old contents
+        instead of replacing them.
+
+        Renaming the existing entry to a backup name (rather than
+        deleting it outright) makes this recoverable: if func() then
+        fails - a flaky USB device disconnecting mid-copy, for instance -
+        the user would otherwise lose their original with nothing to
+        show for it. On failure, any partial result left under the
+        target name is cleared and the backup is renamed back; on
+        success, the backup is discarded."""
         if replace is None:
             return func
 
+        backup_name = f".mtools_gui_bak_{replace.name}"
+
         def wrapped():
-            dst_backend.delete(dst_dir, replace.name, replace.is_dir)
-            func()
+            dst_backend.rename(dst_dir, replace.name, backup_name)
+            try:
+                func()
+            except Exception:
+                try:
+                    dst_backend.delete(dst_dir, replace.name, replace.is_dir)
+                except Exception:
+                    pass  # nothing partial was left under the target name - fine
+                dst_backend.rename(dst_dir, backup_name, replace.name)
+                raise
+            else:
+                dst_backend.delete(dst_dir, backup_name, replace.is_dir)
 
         return wrapped
 
@@ -183,17 +255,25 @@ class TransferService(QObject):
         self._submit(
             _("op_delete", name=entry.name),
             side,
-            lambda: backend.delete(directory, entry.name, entry.is_dir),
+            self._with_device_lock(
+                lambda: backend.delete(directory, entry.name, entry.is_dir), backend
+            ),
         )
 
     def mkdir(self, backend: Backend, side: str, directory: str, name: str) -> None:
-        self._submit(_("op_mkdir", name=name), side, lambda: backend.mkdir(directory, name))
+        self._submit(
+            _("op_mkdir", name=name),
+            side,
+            self._with_device_lock(lambda: backend.mkdir(directory, name), backend),
+        )
 
     def rename(self, backend: Backend, side: str, directory: str, old_name: str, new_name: str) -> None:
         self._submit(
             _("op_rename", name=old_name),
             side,
-            lambda: backend.rename(directory, old_name, new_name),
+            self._with_device_lock(
+                lambda: backend.rename(directory, old_name, new_name), backend
+            ),
         )
 
     @staticmethod

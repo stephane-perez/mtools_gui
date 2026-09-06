@@ -19,6 +19,16 @@ tests/fixtures/mdir_sample.txt. Two quirks that real capture revealed:
   spaces before the size/<DIR> field on the assumption columns were
   always generously padded - real data proved that wrong, so it now
   accepts a single space there too.
+- A *VFAT long filename* (one that doesn't fit 8.3) is listed with an
+  extra trailing column: the usual short-name/size/date/time fields,
+  then 2+ spaces, then the real long name (e.g.
+  ``VID_20~1 MP4  192031009 2026-09-06  22:43  VID_20200713_220831.mp4``).
+  Entries like this used to be silently dropped: the old regex was
+  anchored to end right after the time field, so a line with anything
+  after it simply never matched - the file existed on the card (mdir run
+  directly proved it) but never appeared in the GUI. When present, that
+  trailing long name is the real filename and takes priority over the
+  truncated 8.3 alias.
 """
 
 from __future__ import annotations
@@ -37,7 +47,8 @@ _SKIP_PREFIXES = (
 _ENTRY_RE = re.compile(
     r"^(?P<name>.+?)\s+(?P<meta><DIR>|[\d,]+)\s+"
     r"(?P<date>\d{4}-\d{2}-\d{2}|\d{2}-\d{2}-\d{4})\s+"
-    r"(?P<time>\d{1,2}:\d{2})\s*$"
+    r"(?P<time>\d{1,2}:\d{2})"
+    r"(?:\s{2,}(?P<longname>\S.*))?\s*$"
 )
 
 _SUMMARY_RE = re.compile(r"^\s*\d+\s+file\(s\)|^\s*\d+\s+bytes free\s*$")
@@ -63,7 +74,8 @@ def parse_mdir_output(text: str) -> list[Entry]:
         match = _ENTRY_RE.match(stripped)
         if not match:
             continue
-        name = _normalize_short_name(match.group("name").strip())
+        longname = match.group("longname")
+        name = longname.strip() if longname else _normalize_short_name(match.group("name").strip())
         if name in (".", ".."):
             continue
         is_dir = match.group("meta") == "<DIR>"
