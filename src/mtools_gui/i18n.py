@@ -71,6 +71,17 @@ _STRINGS: dict[str, dict[str, str]] = {
         "fr": "Deplacer vers {side} : {names} ?",
         "en": "Move to {side}: {names}?",
     },
+    "confirm_overwrite_title": {"fr": "Confirmer le remplacement", "en": "Confirm overwrite"},
+    "confirm_overwrite_text": {
+        "fr": (
+            "Existe deja a destination et sera remplace : {names}\n\n"
+            "(le contenu actuel sera supprime avant la copie)"
+        ),
+        "en": (
+            "Already exists at the destination and will be replaced: {names}\n\n"
+            "(its current contents will be deleted before copying)"
+        ),
+    },
     "status_choose_drive": {
         "fr": "Choisissez d'abord un lecteur DOS",
         "en": "Choose a DOS drive first",
@@ -80,6 +91,14 @@ _STRINGS: dict[str, dict[str, str]] = {
         "en": "Select exactly one item to rename",
     },
     "status_op_done": {"fr": "{description} : termine", "en": "{description}: done"},
+    "status_in_progress_one": {
+        "fr": "{description} en cours...",
+        "en": "{description} in progress...",
+    },
+    "status_in_progress_many": {
+        "fr": "{count} operations en cours...",
+        "en": "{count} operations in progress...",
+    },
     "op_copy": {"fr": "Copier {name}", "en": "Copy {name}"},
     "op_move": {"fr": "Deplacer {name}", "en": "Move {name}"},
     "op_delete": {"fr": "Supprimer {name}", "en": "Delete {name}"},

@@ -47,8 +47,16 @@ class MainWindow(QMainWindow):
 
         self.local_backend = LocalBackend()
         self.transfer_service = TransferService(self)
+        self.transfer_service.operation_started.connect(self._on_operation_started)
         self.transfer_service.operation_succeeded.connect(self._on_operation_succeeded)
         self.transfer_service.operation_failed.connect(self._on_operation_failed)
+
+        # Ongoing-operation indicator: a *permanent* status bar widget, so
+        # it survives the transient showMessage() calls used elsewhere for
+        # "done"/error notifications (those replace each other, but never
+        # touch a permanent widget).
+        self._pending_operations: list[str] = []
+        self._progress_label = QLabel("", self)
 
         self.left_pane = PaneWidget("left", self)
         self.right_pane = PaneWidget("right", self)
@@ -108,6 +116,7 @@ class MainWindow(QMainWindow):
 
         self._build_toolbar()
         self._build_shortcuts()
+        self.statusBar().addPermanentWidget(self._progress_label)
         self.statusBar().showMessage(_("status_ready"))
 
         self._refresh_drives()
@@ -284,16 +293,40 @@ class MainWindow(QMainWindow):
             ) != QMessageBox.Yes:
                 logger.info("Move cancelled by the user: %s", names)
                 return
+
+        # mcopy/mmove (and shutil.copytree without dirs_exist_ok) treat an
+        # *existing* destination directory as "copy source inside it"
+        # rather than "replace it" - so an unnoticed name collision would
+        # silently nest a nested copy instead of overwriting. Check
+        # against a fresh listing (not the possibly-stale pane model) and
+        # confirm before clobbering anything.
+        try:
+            dst_by_name = {e.name: e for e in dst.backend.list_dir(dst.current_path)}
+        except Exception as exc:
+            logger.error("Could not check destination contents before transfer: %s", exc)
+            dst_by_name = {}
+
+        conflicts = {e.name: dst_by_name[e.name] for e in entries if e.name in dst_by_name}
+        if conflicts:
+            names = ", ".join(conflicts)
+            if QMessageBox.question(
+                self, _("confirm_overwrite_title"), _("confirm_overwrite_text", names=names)
+            ) != QMessageBox.Yes:
+                logger.info("Overwrite cancelled by the user: %s", names)
+                return
+
         verb = "Move" if move else "Copy"
         service_call = self.transfer_service.move if move else self.transfer_service.copy
         for entry in entries:
             logger.info(
-                "%s requested: %s (%s:%s -> %s:%s)",
+                "%s requested: %s (%s:%s -> %s:%s)%s",
                 verb, entry.name, src.side, src.current_path, dst.side, dst.current_path,
+                " [replacing existing]" if entry.name in conflicts else "",
             )
             service_call(
                 src.backend, src.side, src.current_path, entry,
                 dst.backend, dst.side, dst.current_path,
+                replace=conflicts.get(entry.name),
             )
 
     def delete_selection(self) -> None:
@@ -365,16 +398,37 @@ class MainWindow(QMainWindow):
 
     # -- feedback ---------------------------------------------------------
 
+    def _on_operation_started(self, description: str) -> None:
+        self._pending_operations.append(description)
+        self._update_progress_label()
+
     def _on_operation_succeeded(self, description: str, sides: str) -> None:
         logger.info("%s: done", description)
+        self._remove_pending(description)
         self.statusBar().showMessage(_("status_op_done", description=description), 5000)
         for side in sides.split(","):
             (self.left_pane if side == "left" else self.right_pane).refresh()
 
-    def _on_operation_failed(self, message: str) -> None:
+    def _on_operation_failed(self, message: str, description: str | None = None) -> None:
         logger.error("%s", message)
+        if description is not None:
+            self._remove_pending(description)
         self.statusBar().showMessage(message, 8000)
         QMessageBox.warning(self, _("dialog_error_title"), message)
+
+    def _remove_pending(self, description: str) -> None:
+        if description in self._pending_operations:
+            self._pending_operations.remove(description)
+        self._update_progress_label()
+
+    def _update_progress_label(self) -> None:
+        n = len(self._pending_operations)
+        if n == 0:
+            self._progress_label.setText("")
+        elif n == 1:
+            self._progress_label.setText(_("status_in_progress_one", description=self._pending_operations[0]))
+        else:
+            self._progress_label.setText(_("status_in_progress_many", count=n))
 
     def _show_status_error(self, message: str) -> None:
         logger.warning("%s", message)

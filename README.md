@@ -22,7 +22,7 @@ and tested each change against real hardware (an Atari SD card).
 
 Two ways to install, pick whichever suits you:
 
-- **AppImage**: a single ~230 MB file (it bundles its own Python and Qt,
+- **AppImage**: a single ~80 MB file (it bundles its own Python and Qt,
   so it works regardless of what's already on your system) - no
   installation, no dependencies, but a bigger download.
 - **pipx**: a much smaller download, but requires Python and pipx to

@@ -43,8 +43,9 @@ class TransferService(QObject):
     """Emits operation_succeeded/operation_failed; the GUI decides what to
     refresh from the `sides` hint it passed in when submitting."""
 
+    operation_started = Signal(str)  # description
     operation_succeeded = Signal(str, str)  # description, sides ("left", "right" or "left,right")
-    operation_failed = Signal(str)
+    operation_failed = Signal(str, str)  # full_message, description
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -78,10 +79,13 @@ class TransferService(QObject):
 
         def _on_failed(msg: str) -> None:
             _release()
-            self.operation_failed.emit(_("op_failed_combined", description=description, msg=msg))
+            self.operation_failed.emit(
+                _("op_failed_combined", description=description, msg=msg), description
+            )
 
         task.signals.succeeded.connect(_on_succeeded)
         task.signals.failed.connect(_on_failed)
+        self.operation_started.emit(description)
         self._pool.start(task)
 
     def copy(
@@ -93,6 +97,7 @@ class TransferService(QObject):
         dst_backend: Backend,
         dst_side: str,
         dst_dir: str,
+        replace: Entry | None = None,
     ) -> None:
         description = _("op_copy", name=entry.name)
         sides = dst_side if src_side == dst_side else f"{src_side},{dst_side}"
@@ -118,6 +123,7 @@ class TransferService(QObject):
         else:
             raise TypeError(_("err_unknown_pane_combination"))
 
+        func = self._with_replace(func, dst_backend, dst_dir, replace)
         self._submit(description, sides, func)
 
     def move(
@@ -129,6 +135,7 @@ class TransferService(QObject):
         dst_backend: Backend,
         dst_side: str,
         dst_dir: str,
+        replace: Entry | None = None,
     ) -> None:
         description = _("op_move", name=entry.name)
         sides = dst_side if src_side == dst_side else f"{src_side},{dst_side}"
@@ -150,7 +157,27 @@ class TransferService(QObject):
                 )
                 src_backend.delete(src_dir, entry.name, entry.is_dir)
 
+        func = self._with_replace(func, dst_backend, dst_dir, replace)
         self._submit(description, sides, func)
+
+    @staticmethod
+    def _with_replace(func, dst_backend: Backend, dst_dir: str, replace: Entry | None):
+        """Wrap func so an existing same-named destination entry is
+        deleted first. mcopy/mmove (and shutil.copytree without
+        dirs_exist_ok) treat an *existing* destination directory as "copy
+        source inside it" rather than "replace it" - e.g. copying a
+        folder ANKHA onto an already-present ANKHA silently produced
+        ANKHA/ANKHA/* nested alongside ANKHA's old contents instead of
+        replacing them. Deleting the destination first guarantees a
+        clean copy/move regardless of backend."""
+        if replace is None:
+            return func
+
+        def wrapped():
+            dst_backend.delete(dst_dir, replace.name, replace.is_dir)
+            func()
+
+        return wrapped
 
     def delete(self, backend: Backend, side: str, directory: str, entry: Entry) -> None:
         self._submit(

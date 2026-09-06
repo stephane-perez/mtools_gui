@@ -51,7 +51,34 @@ $PYSIDE6_PIN
 $WHEEL
 EOF
 
-echo "==> Running python-appimage"
-.appimage-build-venv/bin/python-appimage build app -p "$PYTHON_VERSION" "$HERE"
+echo "==> Running python-appimage (unpackaged, so we can trim it first)"
+APPDIR_NAME="mtools_gui-$(uname -m)"
+rm -rf "$ROOT/$APPDIR_NAME"
+.appimage-build-venv/bin/python-appimage build app -p "$PYTHON_VERSION" --no-packaging "$HERE"
 
-echo "==> Done - AppImage written to $ROOT"
+echo "==> Trimming unused bundled Qt/PySide6 data"
+# None of these are ever touched at runtime by this app (verified: it's
+# QtWidgets-only, never installs a QTranslator, and lupdate is a
+# translation-extraction dev tool) - see the size investigation in the
+# project's packaging notes/plan history. Together these were ~85 MB of
+# the previous 103 MB build.
+SITE_PACKAGES="$ROOT/$APPDIR_NAME/opt/python$PYTHON_VERSION/lib/python$PYTHON_VERSION/site-packages"
+for path in \
+    "$SITE_PACKAGES/PySide6/lupdate" \
+    "$SITE_PACKAGES/PySide6/Qt/qml" \
+    "$SITE_PACKAGES/PySide6/Qt/translations" \
+; do
+    if [ -e "$path" ]; then
+        echo "    removing $(du -sh "$path" | cut -f1)  ${path#$ROOT/}"
+        rm -rf "$path"
+    fi
+done
+
+echo "==> Packaging the trimmed AppDir into an AppImage"
+.appimage-build-venv/bin/python -c "
+from python_appimage.appimage import build_appimage
+build_appimage(appdir='$APPDIR_NAME', destination='$APPDIR_NAME.AppImage')
+"
+rm -rf "$ROOT/$APPDIR_NAME"
+
+echo "==> Done - AppImage written to $ROOT/$APPDIR_NAME.AppImage"
