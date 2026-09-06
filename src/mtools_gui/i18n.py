@@ -106,8 +106,11 @@ _STRINGS: dict[str, dict[str, str]] = {
         "en": "{count} operations in progress...",
     },
     "op_copy": {"fr": "Copier {name}", "en": "Copy {name}"},
+    "op_copy_many": {"fr": "Copier {count} éléments", "en": "Copy {count} items"},
     "op_move": {"fr": "Déplacer {name}", "en": "Move {name}"},
+    "op_move_many": {"fr": "Déplacer {count} éléments", "en": "Move {count} items"},
     "op_delete": {"fr": "Supprimer {name}", "en": "Delete {name}"},
+    "op_delete_many": {"fr": "Supprimer {count} éléments", "en": "Delete {count} items"},
     "op_mkdir": {"fr": "Nouveau dossier {name}", "en": "New folder {name}"},
     "op_rename": {"fr": "Renommer {name}", "en": "Rename {name}"},
     "dialog_new_folder_title": {"fr": "Nouveau dossier", "en": "New folder"},
@@ -214,6 +217,17 @@ _STRINGS: dict[str, dict[str, str]] = {
         "en": (
             "{name} was copied, but the original could not be removed "
             "from the source: {error}. Both copies now exist."
+        ),
+    },
+    "move_copied_but_source_delete_failed_many": {
+        "fr": (
+            "{count} éléments ont été copiés, mais les originaux n'ont pas pu "
+            "être supprimés de la source : {error}. Les deux copies existent "
+            "maintenant."
+        ),
+        "en": (
+            "{count} items were copied, but the originals could not be "
+            "removed from the source: {error}. Both copies now exist."
         ),
     },
     "view_dialog_read_error": {

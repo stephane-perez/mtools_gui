@@ -50,7 +50,7 @@ def test_label_shows_description_while_one_operation_is_running(window, tmp_path
     entries = window.left_pane.entries_by_names(["a.txt"])
 
     window.transfer_service.copy(
-        window.left_pane.backend, "left", str(src), entries[0],
+        window.left_pane.backend, "left", str(src), entries,
         window.right_pane.backend, "right", str(dst),
     )
 

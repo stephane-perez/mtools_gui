@@ -4,9 +4,9 @@ without dirs_exist_ok, copy the source *inside* an existing destination
 directory rather than replacing it - e.g. copying folder PHOTOS onto an
 already-present PHOTOS produced PHOTOS/PHOTOS/* nested alongside PHOTOS's old
 contents). Now: the destination is checked for conflicts, the user is
-asked to confirm, and on confirmation the existing destination entry is
+asked to confirm, and on confirmation every conflicting destination entry is
 renamed to a backup name before the copy/move runs (not deleted outright -
-see _with_replace's docstring: a rename-then-restore-on-failure means a
+see _with_replace_many's docstring: a rename-then-restore-on-failure means a
 copy that fails partway through doesn't cost the user their original).
 Headless (offscreen); the end-to-end test uses only local temp
 directories - no SD card or mtools involved.
@@ -37,7 +37,7 @@ def _entry(name, is_dir=False):
     return Entry(name=name, is_dir=is_dir, size=0, modified=datetime(2024, 1, 1))
 
 
-# -- TransferService._with_replace -------------------------------------------
+# -- TransferService._with_replace_many --------------------------------------
 
 
 def _fake_backend(calls):
@@ -52,8 +52,8 @@ def test_with_replace_renames_existing_entry_out_of_the_way_first():
     existing = _entry("PHOTOS", is_dir=True)
     dst_backend = _fake_backend(calls)
 
-    wrapped = TransferService._with_replace(
-        lambda: calls.append(("copy",)), dst_backend, "/dest_dir", existing
+    wrapped = TransferService._with_replace_many(
+        lambda: calls.append(("copy",)), dst_backend, "/dest_dir", [existing]
     )
     wrapped()
 
@@ -61,6 +61,26 @@ def test_with_replace_renames_existing_entry_out_of_the_way_first():
         ("rename", "/dest_dir", "PHOTOS", ".mtools_gui_bak_PHOTOS"),
         ("copy",),
         ("delete", "/dest_dir", ".mtools_gui_bak_PHOTOS", True),
+    ]
+
+
+def test_with_replace_renames_every_conflicting_entry_for_a_batch():
+    calls = []
+    existing_a = _entry("PHOTOS", is_dir=True)
+    existing_b = _entry("VIDEOS", is_dir=True)
+    dst_backend = _fake_backend(calls)
+
+    wrapped = TransferService._with_replace_many(
+        lambda: calls.append(("copy",)), dst_backend, "/dest_dir", [existing_a, existing_b]
+    )
+    wrapped()
+
+    assert calls == [
+        ("rename", "/dest_dir", "PHOTOS", ".mtools_gui_bak_PHOTOS"),
+        ("rename", "/dest_dir", "VIDEOS", ".mtools_gui_bak_VIDEOS"),
+        ("copy",),
+        ("delete", "/dest_dir", ".mtools_gui_bak_PHOTOS", True),
+        ("delete", "/dest_dir", ".mtools_gui_bak_VIDEOS", True),
     ]
 
 
@@ -72,7 +92,7 @@ def test_with_replace_restores_the_backup_if_the_copy_fails():
     def failing_copy():
         raise OSError("card was pulled mid-copy")
 
-    wrapped = TransferService._with_replace(failing_copy, dst_backend, "/dest_dir", existing)
+    wrapped = TransferService._with_replace_many(failing_copy, dst_backend, "/dest_dir", [existing])
 
     with pytest.raises(OSError, match="card was pulled"):
         wrapped()
@@ -88,7 +108,7 @@ def test_with_replace_restores_the_backup_if_the_copy_fails():
 
 def test_with_replace_is_noop_when_nothing_to_replace():
     calls = []
-    wrapped = TransferService._with_replace(lambda: calls.append("copy"), None, "/x", None)
+    wrapped = TransferService._with_replace_many(lambda: calls.append("copy"), None, "/x", [])
     wrapped()
     assert calls == ["copy"]
 
@@ -111,7 +131,7 @@ def test_replace_end_to_end_survives_a_failed_copy(tmp_path):
     def failing_copy():
         raise OSError("simulated failure partway through the copy")
 
-    wrapped = TransferService._with_replace(failing_copy, backend, str(dst_dir), existing)
+    wrapped = TransferService._with_replace_many(failing_copy, backend, str(dst_dir), [existing])
 
     with pytest.raises(OSError):
         wrapped()
@@ -132,7 +152,7 @@ def window(qapp):
     return mw.MainWindow()
 
 
-def test_conflict_detected_asks_confirmation_and_passes_replace(window, monkeypatch):
+def test_conflict_detected_asks_confirmation_and_passes_replacements(window, monkeypatch):
     src = window.left_pane
     dst = window.right_pane
 
@@ -149,7 +169,7 @@ def test_conflict_detected_asks_confirmation_and_passes_replace(window, monkeypa
 
     window._transfer_entries(src, dst, [_entry("PHOTOS", is_dir=True)], move=False)
 
-    assert captured["kwargs"]["replace"] is existing
+    assert captured["kwargs"]["replacements"] == {"PHOTOS": existing}
 
 
 def test_conflict_declined_cancels_the_whole_transfer(window, monkeypatch):
@@ -167,7 +187,7 @@ def test_conflict_declined_cancels_the_whole_transfer(window, monkeypatch):
     assert called == []
 
 
-def test_no_conflict_does_not_prompt_and_passes_replace_none(window, monkeypatch):
+def test_no_conflict_does_not_prompt_and_passes_empty_replacements(window, monkeypatch):
     src = window.left_pane
     dst = window.right_pane
     monkeypatch.setattr(dst, "backend", SimpleNamespace(list_dir=lambda path: []))
@@ -182,7 +202,7 @@ def test_no_conflict_does_not_prompt_and_passes_replace_none(window, monkeypatch
     window._transfer_entries(src, dst, [_entry("newfile.txt")], move=False)
 
     assert asked == []
-    assert captured["kwargs"]["replace"] is None
+    assert captured["kwargs"]["replacements"] == {}
 
 
 # -- End-to-end: reproduces the exact PHOTOS nesting bug with local dirs -----

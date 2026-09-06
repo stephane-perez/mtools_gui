@@ -98,14 +98,6 @@ def list_dir(device: str, dos_path: str) -> list[Entry]:
     return parse_mdir_output(output)
 
 
-def copy_unix_to_dos(device: str, unix_path: str, dos_path: str) -> None:
-    _run_helper("mcopy", device, [unix_path, dos_path])
-
-
-def copy_dos_to_unix(device: str, dos_path: str, unix_path: str) -> None:
-    _run_helper("mcopy", device, [dos_path, unix_path])
-
-
 def delete(device: str, dos_path: str) -> None:
     _run_helper("mdel", device, [dos_path])
 
@@ -126,12 +118,40 @@ def rename(device: str, old_dos_path: str, new_dos_path: str) -> None:
     _run_helper("mren", device, [old_dos_path, new_dos_path])
 
 
-def move(device: str, src_dos_path: str, dst_dos_path: str) -> None:
-    _run_helper("mmove", device, [src_dos_path, dst_dos_path])
+# -- Batch variants -----------------------------------------------------------
+# A multi-select transfer used to submit one _run_helper call per file, each
+# paying the full cost of a fresh pkexec+polkit round-trip, a new helper
+# Python interpreter, its own lsblk device re-validation and mtools re-parsing
+# the FAT tables from scratch - around a second of overhead per file, however
+# small. mcopy/mmove/mdel/mdeltree all natively accept multiple source
+# arguments in one invocation (targeting a single destination directory for
+# mcopy/mmove), so a whole selection can go through that chain exactly once.
+# No helper-side change was needed for this: validate_args already validates
+# every argument in the list individually, regardless of how many there are.
 
 
-def copy_within_dos(device: str, src_dos_path: str, dst_dos_path: str) -> None:
-    _run_helper("mcopy", device, [src_dos_path, dst_dos_path])
+def copy_many_unix_to_dos(device: str, unix_paths: list[str], dos_dir: str) -> None:
+    _run_helper("mcopy", device, [*unix_paths, dos_dir])
+
+
+def copy_many_dos_to_unix(device: str, dos_paths: list[str], unix_dir: str) -> None:
+    _run_helper("mcopy", device, [*dos_paths, unix_dir])
+
+
+def copy_within_dos_many(device: str, src_dos_paths: list[str], dst_dos_dir: str) -> None:
+    _run_helper("mcopy", device, [*src_dos_paths, dst_dos_dir])
+
+
+def move_within_dos_many(device: str, src_dos_paths: list[str], dst_dos_dir: str) -> None:
+    _run_helper("mmove", device, [*src_dos_paths, dst_dos_dir])
+
+
+def delete_many(device: str, dos_paths: list[str]) -> None:
+    _run_helper("mdel", device, dos_paths)
+
+
+def delete_recursive_many(device: str, dos_paths: list[str]) -> None:
+    _run_helper("mdeltree", device, dos_paths)
 
 
 def read_text(device: str, dos_path: str) -> str:

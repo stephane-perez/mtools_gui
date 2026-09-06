@@ -127,42 +127,52 @@ class TransferService(QObject):
         self.operation_started.emit(description)
         self._pool.start(task)
 
+    @staticmethod
+    def _describe(op_single: str, op_many: str, entries: list[Entry]) -> str:
+        if len(entries) == 1:
+            return _(op_single, name=entries[0].name)
+        return _(op_many, count=len(entries))
+
     def copy(
         self,
         src_backend: Backend,
         src_side: str,
         src_dir: str,
-        entry: Entry,
+        entries: list[Entry],
         dst_backend: Backend,
         dst_side: str,
         dst_dir: str,
-        replace: Entry | None = None,
+        replacements: dict[str, Entry] | None = None,
     ) -> None:
-        description = _("op_copy", name=entry.name)
+        if not entries:
+            return
+        replacements = replacements or {}
+        description = self._describe("op_copy", "op_copy_many", entries)
         sides = dst_side if src_side == dst_side else f"{src_side},{dst_side}"
+        names = [e.name for e in entries]
 
         if isinstance(src_backend, LocalBackend) and isinstance(dst_backend, LocalBackend):
             import shutil
 
-            src_path = src_backend.join(src_dir, entry.name)
-            dst_path = dst_backend.join(dst_dir, entry.name)
-            func = (
-                (lambda: shutil.copytree(src_path, dst_path))
-                if entry.is_dir
-                else (lambda: shutil.copy2(src_path, dst_path))
-            )
+            def func():
+                for entry in entries:
+                    src_path = src_backend.join(src_dir, entry.name)
+                    dst_path = dst_backend.join(dst_dir, entry.name)
+                    if entry.is_dir:
+                        shutil.copytree(src_path, dst_path)
+                    else:
+                        shutil.copy2(src_path, dst_path)
         elif isinstance(src_backend, DosBackend) and isinstance(dst_backend, DosBackend):
-            func = lambda: src_backend.copy_within(src_dir, entry.name, dst_dir)
+            func = lambda: src_backend.copy_within_many(names, src_dir, dst_dir)
         elif isinstance(src_backend, LocalBackend) and isinstance(dst_backend, DosBackend):
-            src_path = src_backend.join(src_dir, entry.name)
-            func = lambda: dst_backend.copy_in(src_path, dst_dir, entry.name)
+            unix_paths = [src_backend.join(src_dir, name) for name in names]
+            func = lambda: dst_backend.copy_in_many(unix_paths, dst_dir)
         elif isinstance(src_backend, DosBackend) and isinstance(dst_backend, LocalBackend):
-            dst_path = dst_backend.join(dst_dir, entry.name)
-            func = lambda: src_backend.copy_out(src_dir, entry.name, dst_path)
+            func = lambda: src_backend.copy_out_many(src_dir, names, dst_dir)
         else:
             raise TypeError(_("err_unknown_pane_combination"))
 
-        func = self._with_replace(func, dst_backend, dst_dir, replace)
+        func = self._with_replace_many(func, dst_backend, dst_dir, list(replacements.values()))
         func = self._with_device_lock(func, src_backend, dst_backend)
         self._submit(description, sides, func)
 
@@ -171,94 +181,124 @@ class TransferService(QObject):
         src_backend: Backend,
         src_side: str,
         src_dir: str,
-        entry: Entry,
+        entries: list[Entry],
         dst_backend: Backend,
         dst_side: str,
         dst_dir: str,
-        replace: Entry | None = None,
+        replacements: dict[str, Entry] | None = None,
     ) -> None:
-        description = _("op_move", name=entry.name)
+        if not entries:
+            return
+        replacements = replacements or {}
+        description = self._describe("op_move", "op_move_many", entries)
         sides = dst_side if src_side == dst_side else f"{src_side},{dst_side}"
+        names = [e.name for e in entries]
 
         if isinstance(src_backend, LocalBackend) and isinstance(dst_backend, LocalBackend):
             import shutil
 
-            src_path = src_backend.join(src_dir, entry.name)
-            dst_path = dst_backend.join(dst_dir, entry.name)
-            func = lambda: shutil.move(src_path, dst_path)
+            def func():
+                for entry in entries:
+                    src_path = src_backend.join(src_dir, entry.name)
+                    dst_path = dst_backend.join(dst_dir, entry.name)
+                    shutil.move(src_path, dst_path)
         elif isinstance(src_backend, DosBackend) and isinstance(dst_backend, DosBackend):
-            func = lambda: src_backend.move_within(src_dir, entry.name, dst_dir)
+            func = lambda: src_backend.move_within_many(names, src_dir, dst_dir)
         else:
             # Moving across the Linux/DOS boundary: mmove can't cross it
             # (see man mmove), so this is copy-then-delete-source. If
-            # _blocking_copy itself raises, delete is never reached - the
-            # source is untouched, which is already correct. The gap was
-            # the other way: if the copy *succeeds* but deleting the
+            # _blocking_copy_many itself raises, delete is never reached -
+            # the source is untouched, which is already correct. The gap
+            # was the other way: if the copy *succeeds* but deleting the
             # source then fails (e.g. the card was pulled mid-operation),
             # that surfaced as a generic "Move failed", indistinguishable
             # from a move that never copied anything - misleading, since
             # the data is safe (now in both places) rather than lost.
             def func():
-                self._blocking_copy(
-                    src_backend, src_dir, entry, dst_backend, dst_dir
-                )
+                self._blocking_copy_many(src_backend, src_dir, entries, dst_backend, dst_dir)
                 try:
-                    src_backend.delete(src_dir, entry.name, entry.is_dir)
+                    if isinstance(src_backend, DosBackend):
+                        src_backend.delete_many(src_dir, entries)
+                    else:
+                        for entry in entries:
+                            src_backend.delete(src_dir, entry.name, entry.is_dir)
                 except Exception as exc:
-                    raise MtoolsClientError(
-                        _("move_copied_but_source_delete_failed", name=entry.name, error=exc)
-                    ) from exc
+                    if len(entries) == 1:
+                        msg = _(
+                            "move_copied_but_source_delete_failed",
+                            name=names[0], error=exc,
+                        )
+                    else:
+                        msg = _(
+                            "move_copied_but_source_delete_failed_many",
+                            count=len(entries), error=exc,
+                        )
+                    raise MtoolsClientError(msg) from exc
 
-        func = self._with_replace(func, dst_backend, dst_dir, replace)
+        func = self._with_replace_many(func, dst_backend, dst_dir, list(replacements.values()))
         func = self._with_device_lock(func, src_backend, dst_backend)
         self._submit(description, sides, func)
 
     @staticmethod
-    def _with_replace(func, dst_backend: Backend, dst_dir: str, replace: Entry | None):
-        """Wrap func so an existing same-named destination entry is out
-        of the way before it runs. mcopy/mmove (and shutil.copytree
+    def _with_replace_many(func, dst_backend: Backend, dst_dir: str, replacements: list[Entry]):
+        """Wrap func so every existing same-named destination entry is
+        out of the way before it runs. mcopy/mmove (and shutil.copytree
         without dirs_exist_ok) treat an *existing* destination directory
         as "copy source inside it" rather than "replace it" - e.g.
         copying a folder PHOTOS onto an already-present PHOTOS silently
         produced PHOTOS/PHOTOS/* nested alongside PHOTOS's old contents
         instead of replacing them.
 
-        Renaming the existing entry to a backup name (rather than
+        Renaming each existing entry to a backup name (rather than
         deleting it outright) makes this recoverable: if func() then
         fails - a flaky USB device disconnecting mid-copy, for instance -
-        the user would otherwise lose their original with nothing to
-        show for it. On failure, any partial result left under the
-        target name is cleared and the backup is renamed back; on
-        success, the backup is discarded."""
-        if replace is None:
+        the user would otherwise lose their originals with nothing to
+        show for it. On failure, any partial result left under a target
+        name is cleared and its backup is renamed back; on success, every
+        backup is discarded.
+
+        Unlike the batched copy/move itself, this doesn't get a batch
+        speedup: mtools has no multi-file rename, so each conflicting
+        entry still costs one rename (and maybe one delete) call of its
+        own. That's fine - conflicts are the uncommon case; this exists
+        to keep them safe, not fast."""
+        if not replacements:
             return func
 
-        backup_name = f".mtools_gui_bak_{replace.name}"
+        backups = [(r, f".mtools_gui_bak_{r.name}") for r in replacements]
 
         def wrapped():
-            dst_backend.rename(dst_dir, replace.name, backup_name)
+            for r, backup_name in backups:
+                dst_backend.rename(dst_dir, r.name, backup_name)
             try:
                 func()
             except Exception:
-                try:
-                    dst_backend.delete(dst_dir, replace.name, replace.is_dir)
-                except Exception:
-                    pass  # nothing partial was left under the target name - fine
-                dst_backend.rename(dst_dir, backup_name, replace.name)
+                for r, backup_name in backups:
+                    try:
+                        dst_backend.delete(dst_dir, r.name, r.is_dir)
+                    except Exception:
+                        pass  # nothing partial was left under the target name - fine
+                    dst_backend.rename(dst_dir, backup_name, r.name)
                 raise
             else:
-                dst_backend.delete(dst_dir, backup_name, replace.is_dir)
+                for r, backup_name in backups:
+                    dst_backend.delete(dst_dir, backup_name, r.is_dir)
 
         return wrapped
 
-    def delete(self, backend: Backend, side: str, directory: str, entry: Entry) -> None:
-        self._submit(
-            _("op_delete", name=entry.name),
-            side,
-            self._with_device_lock(
-                lambda: backend.delete(directory, entry.name, entry.is_dir), backend
-            ),
-        )
+    def delete(self, backend: Backend, side: str, directory: str, entries: list[Entry]) -> None:
+        if not entries:
+            return
+        description = self._describe("op_delete", "op_delete_many", entries)
+
+        if isinstance(backend, DosBackend):
+            func = lambda: backend.delete_many(directory, entries)
+        else:
+            def func():
+                for entry in entries:
+                    backend.delete(directory, entry.name, entry.is_dir)
+
+        self._submit(description, side, self._with_device_lock(func, backend))
 
     def mkdir(self, backend: Backend, side: str, directory: str, name: str) -> None:
         self._submit(
@@ -277,20 +317,20 @@ class TransferService(QObject):
         )
 
     @staticmethod
-    def _blocking_copy(
+    def _blocking_copy_many(
         src_backend: Backend,
         src_dir: str,
-        entry: Entry,
+        entries: list[Entry],
         dst_backend: Backend,
         dst_dir: str,
     ) -> None:
         """Used internally for the copy step of a cross-boundary move -
         runs synchronously since it's already inside a worker thread."""
+        names = [e.name for e in entries]
         if isinstance(src_backend, LocalBackend) and isinstance(dst_backend, DosBackend):
-            src_path = src_backend.join(src_dir, entry.name)
-            dst_backend.copy_in(src_path, dst_dir, entry.name)
+            unix_paths = [src_backend.join(src_dir, name) for name in names]
+            dst_backend.copy_in_many(unix_paths, dst_dir)
         elif isinstance(src_backend, DosBackend) and isinstance(dst_backend, LocalBackend):
-            dst_path = dst_backend.join(dst_dir, entry.name)
-            src_backend.copy_out(src_dir, entry.name, dst_path)
+            src_backend.copy_out_many(src_dir, names, dst_dir)
         else:
             raise TypeError(_("err_unknown_pane_combination_move"))

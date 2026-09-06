@@ -350,17 +350,21 @@ class MainWindow(QMainWindow):
 
         verb = "Move" if move else "Copy"
         service_call = self.transfer_service.move if move else self.transfer_service.copy
-        for entry in entries:
-            logger.info(
-                "%s requested: %s (%s:%s -> %s:%s)%s",
-                verb, entry.name, src.side, src.current_path, dst.side, dst.current_path,
-                " [replacing existing]" if entry.name in conflicts else "",
-            )
-            service_call(
-                src.backend, src.side, src.current_path, entry,
-                dst.backend, dst.side, dst.current_path,
-                replace=conflicts.get(entry.name),
-            )
+        # One batched call for the whole selection rather than one per
+        # entry: each call is a separate pkexec+helper+mtools round-trip
+        # for a DOS-side backend, so submitting per-file made an N-file
+        # transfer cost roughly N seconds even though mcopy/mmove/mdel
+        # all natively accept a whole file list in a single invocation.
+        logger.info(
+            "%s requested: %d item(s) (%s:%s -> %s:%s)%s",
+            verb, len(entries), src.side, src.current_path, dst.side, dst.current_path,
+            f" [{len(conflicts)} replacing existing]" if conflicts else "",
+        )
+        service_call(
+            src.backend, src.side, src.current_path, entries,
+            dst.backend, dst.side, dst.current_path,
+            replacements=conflicts,
+        )
 
     def delete_selection(self) -> None:
         pane = self.active_pane
@@ -375,9 +379,10 @@ class MainWindow(QMainWindow):
         ) != QMessageBox.Yes:
             logger.info("Delete cancelled by the user: %s", names)
             return
-        for entry in entries:
-            logger.info("Delete requested: %s:%s/%s", pane.side, pane.current_path, entry.name)
-            self.transfer_service.delete(pane.backend, pane.side, pane.current_path, entry)
+        logger.info(
+            "Delete requested: %d item(s) from %s:%s", len(entries), pane.side, pane.current_path
+        )
+        self.transfer_service.delete(pane.backend, pane.side, pane.current_path, entries)
 
     def make_directory(self) -> None:
         pane = self.active_pane

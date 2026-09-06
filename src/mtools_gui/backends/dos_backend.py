@@ -53,28 +53,39 @@ class DosBackend(Backend):
         parent = str(PurePosixPath(path or ROOT).parent)
         return parent
 
-    def copy_in(self, unix_source: str, dest_dir: str, dest_name: str) -> None:
-        """Copy a file from the local filesystem onto the DOS partition."""
-        mtools_client.copy_unix_to_dos(
-            self.device, unix_source, self._dos_arg(self.join(dest_dir, dest_name))
-        )
+    def copy_in_many(self, unix_sources: list[str], dest_dir: str) -> None:
+        """Copy multiple local files onto the DOS partition in one mtools call."""
+        mtools_client.copy_many_unix_to_dos(self.device, unix_sources, self._dos_arg(dest_dir))
 
-    def copy_out(self, source_dir: str, source_name: str, unix_dest: str) -> None:
-        """Copy a file from the DOS partition to the local filesystem."""
-        mtools_client.copy_dos_to_unix(
-            self.device, self._dos_arg(self.join(source_dir, source_name)), unix_dest
-        )
-
-    def move_within(self, src_dir: str, name: str, dst_dir: str) -> None:
-        mtools_client.move(
+    def copy_out_many(self, source_dir: str, source_names: list[str], unix_dest_dir: str) -> None:
+        """Copy multiple files from the DOS partition into one local directory."""
+        mtools_client.copy_many_dos_to_unix(
             self.device,
-            self._dos_arg(self.join(src_dir, name)),
-            self._dos_arg(self.join(dst_dir, name)),
+            [self._dos_arg(self.join(source_dir, name)) for name in source_names],
+            unix_dest_dir,
         )
 
-    def copy_within(self, src_dir: str, name: str, dst_dir: str) -> None:
-        mtools_client.copy_within_dos(
+    def copy_within_many(self, names: list[str], src_dir: str, dst_dir: str) -> None:
+        mtools_client.copy_within_dos_many(
             self.device,
-            self._dos_arg(self.join(src_dir, name)),
-            self._dos_arg(self.join(dst_dir, name)),
+            [self._dos_arg(self.join(src_dir, name)) for name in names],
+            self._dos_arg(dst_dir),
         )
+
+    def move_within_many(self, names: list[str], src_dir: str, dst_dir: str) -> None:
+        mtools_client.move_within_dos_many(
+            self.device,
+            [self._dos_arg(self.join(src_dir, name)) for name in names],
+            self._dos_arg(dst_dir),
+        )
+
+    def delete_many(self, path: str, entries: list[Entry]) -> None:
+        # mdel and mdeltree are two different binaries (files vs.
+        # directories), so a mixed selection needs at most two calls
+        # instead of one - still far fewer than one per entry.
+        files = [self._dos_arg(self.join(path, e.name)) for e in entries if not e.is_dir]
+        dirs = [self._dos_arg(self.join(path, e.name)) for e in entries if e.is_dir]
+        if files:
+            mtools_client.delete_many(self.device, files)
+        if dirs:
+            mtools_client.delete_recursive_many(self.device, dirs)
