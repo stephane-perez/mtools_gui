@@ -161,16 +161,34 @@ class PaneWidget(QWidget):
         self.up_button.setEnabled(enabled)
 
     def refresh(self) -> None:
+        """Re-list the current directory in place."""
+        self._list_and_display(self.current_path)
+
+    def _list_and_display(self, path: str) -> None:
+        """Try to list `path` and, only on success, adopt it as
+        current_path. Listing a directory the user can't read (e.g. a
+        root-owned timeshift snapshot dir) used to still commit to the
+        new path before failing - the pane kept showing the old (still
+        valid) listing since set_entries was never reached, so nothing
+        on screen looked wrong, but current_path was left pointing at a
+        directory that doesn't actually list. Double-clicking the same
+        visible entry again then joined onto that already-broken path
+        instead of the real one, nesting the same name deeper each time
+        (".../timeshift/timeshift/timeshift/...") and breaking every
+        operation that used current_path (copy included). Now a failed
+        listing leaves current_path - and everything shown - untouched.
+        """
         if self.backend is None:
             return
-        logger.debug("[%s] listing %s", self.side, self.current_path or "/")
+        logger.debug("[%s] listing %s", self.side, path or "/")
         try:
-            entries = self.backend.list_dir(self.current_path)
+            entries = self.backend.list_dir(path)
         except Exception as exc:  # surfaced to the status bar, pane stays as-is
-            logger.error("[%s] failed to list %s: %s", self.side, self.current_path or "/", exc)
+            logger.error("[%s] failed to list %s: %s", self.side, path or "/", exc)
             self.error.emit(str(exc))
             return
-        logger.debug("[%s] found %d entries in %s", self.side, len(entries), self.current_path or "/")
+        logger.debug("[%s] found %d entries in %s", self.side, len(entries), path or "/")
+        self.current_path = path
         self.model.set_entries(entries)
         self._update_name_column_width()
         self.path_label.setText(self.current_path or "/")
@@ -252,14 +270,12 @@ class PaneWidget(QWidget):
     def go_up(self) -> None:
         if self.backend is None or self.current_path in ROOT_PATHS:
             return
-        self.current_path = self.backend.parent(self.current_path)
-        self.refresh()
+        self._list_and_display(self.backend.parent(self.current_path))
 
     def navigate_into(self, name: str) -> None:
         if self.backend is None:
             return
-        self.current_path = self.backend.join(self.current_path, name)
-        self.refresh()
+        self._list_and_display(self.backend.join(self.current_path, name))
 
     def _on_header_clicked(self, column: int) -> None:
         if self.model.sort_column == column:
