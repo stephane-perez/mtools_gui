@@ -119,19 +119,28 @@ _STRINGS: dict[str, dict[str, str]] = {
     "dialog_rename_label": {"fr": "Nouveau nom :", "en": "New name:"},
     "dialog_error_title": {"fr": "Erreur", "en": "Error"},
     "dialog_install_required_title": {
-        "fr": "Installation requise",
-        "en": "Installation required",
+        "fr": "Installation requise pour accéder aux périphériques amovibles",
+        "en": "Installation required to access removable drives",
     },
     "dialog_install_required_text": {
         "fr": (
-            "Le helper privilégié n'est pas encore installé.\n\n"
+            "Pour lire et écrire sur une carte SD ou une clé USB, "
+            "mtools_gui a besoin d'un petit programme complémentaire "
+            "exécuté avec les droits root (il ne fait rien d'autre : il "
+            "sert uniquement à lancer les commandes mtools sur le "
+            "périphérique que vous choisissez). Ce programme n'est pas "
+            "encore installé.\n\n"
             "Cliquez sur \"Installer maintenant\" (demandera votre mot de "
             "passe), ou lancez une fois manuellement dans un terminal :\n"
             "  {command}\n\n"
             "Le volet gauche (fichiers locaux) fonctionne déjà sans cela."
         ),
         "en": (
-            "The privileged helper isn't installed yet.\n\n"
+            "To read and write to an SD card or USB key, mtools_gui "
+            "needs a small companion program run with root privileges "
+            "(it does nothing else - it only runs mtools commands "
+            "against the removable drive you pick). This program isn't "
+            "installed yet.\n\n"
             "Click \"Install now\" (will ask for your password), or run "
             "this once manually in a terminal:\n"
             "  {command}\n\n"

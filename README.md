@@ -47,15 +47,44 @@ download a base Python AppImage and appimagetool).
 ### From source (pipx)
 
 Needs Python >= 3.10 and [pipx](https://pipx.pypa.io/) (`apt install
-pipx` / `dnf install pipx` / `pip install --user pipx`):
+pipx` / `dnf install pipx` / `pip install --user pipx`).
+
+`pipx install .` installs from a local copy of the source, so it needs
+one first - pick whichever of these two is easiest:
+
+**Option A - let pipx fetch it, no manual clone needed:**
 
 ```bash
+pipx install "git+https://github.com/stephane-perez/mtools_gui.git"
+```
+
+**Option B - clone it yourself** (handy if you also want to read the
+code, switch branches, or build the AppImage locally):
+
+```bash
+git clone https://github.com/stephane-perez/mtools_gui.git
+cd mtools_gui
 pipx install .
 ```
 
-The left pane (local files) works right away; the right pane (DOS
-drive) needs one extra one-time step first - either click "Install now"
-when the app prompts for it on first launch, or run manually:
+Either way, this doesn't need to happen in any particular directory -
+`git clone` creates its own `mtools_gui/` subfolder wherever you run it
+(your home directory is a fine default), and `pipx install` copies what
+it needs into its own isolated location; the cloned folder can be
+deleted afterwards (Option B) or was never created in the first place
+(Option A).
+
+The left pane (local files) works right away. The right pane (a DOS
+drive) needs one extra one-time step first: `mtools` needs root access
+to read/write a raw block device (an SD card, a USB key), so instead of
+running the whole GUI as root, mtools_gui installs one small dedicated
+helper program that does nothing except run mtools commands against the
+removable drive you pick - see [Security](#security) below for how
+that's kept narrow.
+
+Either click "Install now" when the app prompts for it on first launch
+(it'll explain the same thing and ask for your password), or run this
+once manually in a terminal:
 
 ```bash
 sudo "$(command -v mtools-gui-install-helper)"
@@ -63,10 +92,11 @@ sudo "$(command -v mtools-gui-install-helper)"
 
 This installs, once per machine:
 - `/usr/local/libexec/mtools-gui-helper`: the small privileged program
-  that actually runs mtools commands against the chosen device.
+  mentioned above - the only thing on the system that actually runs
+  mtools commands against the chosen device.
 - `/etc/polkit-1/rules.d/49-mtools-gui.rules`: a polkit rule that lets
-  the active graphical session's user run this helper (and only this
-  helper) without a password.
+  the active graphical session's user run this one program (and only
+  this one) without a password each time.
 
 ## Running the application
 
