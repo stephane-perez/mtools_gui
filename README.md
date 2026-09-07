@@ -49,6 +49,9 @@ download a base Python AppImage and appimagetool).
 Needs Python >= 3.10 and [pipx](https://pipx.pypa.io/) (`apt install
 pipx` / `dnf install pipx` / `pip install --user pipx`).
 
+On immutable systems such as Fedora Atomic images, run:
+`python -m pip install pipx`
+
 `pipx install .` installs from a local copy of the source, so it needs
 one first - pick whichever of these two is easiest:
 
@@ -56,6 +59,12 @@ one first - pick whichever of these two is easiest:
 
 ```bash
 pipx install "git+https://github.com/stephane-perez/mtools_gui.git"
+```
+
+On immutable systems such as Fedora Atomic images, run:
+
+```bash
+python -m pipx install "git+https://github.com/stephane-perez/mtools_gui.git"
 ```
 
 **Option B - clone it yourself** (handy if you also want to read the
