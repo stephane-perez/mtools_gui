@@ -80,7 +80,24 @@ NON_DOS_FSTYPES = {
 
 EXTRA_ALLOWED_ROOTS = ("/media", "/run/media", "/mnt")
 
-HELPER_ENV = {"LC_ALL": "C", "PATH": "/usr/bin:/bin"}
+HELPER_ENV = {
+    "LC_ALL": "C",
+    "PATH": "/usr/bin:/bin",
+    # mtools' own sanity check on the boot sector's recorded geometry
+    # rejects (or, depending on version, just warns loudly on) some
+    # older Atari GEMDOS disks whose BPB doesn't match what mtools
+    # expects - confirmed against a real card ("Hidden (7626) does not
+    # match sectors (63)"). man mtools.conf calls this out explicitly:
+    # "needed to read some Atari disks which have been made with the
+    # earlier ROMs, and which would not be recognized otherwise." This
+    # is a FAT-structure compatibility check, unrelated to this
+    # project's own device-identity validation above (removable check,
+    # fstype exclusion, path confinement) - skipping it doesn't weaken
+    # any of that, it only stops mtools second-guessing media this app
+    # exists specifically to support. Irrelevant to (and harmless for)
+    # the lsblk calls that also use this env.
+    "MTOOLS_SKIP_CHECK": "1",
+}
 
 # Keep in sync with mtools_client.HELPER_TIMEOUT_SECONDS/
 # HELPER_COPY_TIMEOUT_SECONDS (duplicated on purpose: this file must stay
