@@ -9,6 +9,14 @@ jobs:
   test:
     name: Build & test (Python ${{ matrix.python-version }})
     runs-on: ubuntu-latest
+    # Safety net: a test that pops a real (unmocked) blocking dialog
+    # under the "offscreen" platform hangs forever rather than failing -
+    # confirmed against a real run that sat for ~28 minutes before being
+    # manually cancelled (see tests/conftest.py's _pretend_helper_is_installed,
+    # which fixes the specific cause found). This bounds the damage if a
+    # similar hang is ever introduced again, instead of burning the full
+    # default 6-hour job timeout.
+    timeout-minutes: 15
     strategy:
       fail-fast: false
       matrix:
@@ -46,6 +54,7 @@ jobs:
   pipx-install:
     name: pipx install . (smoke test)
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
 
