@@ -161,8 +161,22 @@ def _sysfs_removable(pkname: str | None) -> bool:
         return False
 
 
-def is_removable(row: dict, sysfs_read_fn=_sysfs_removable) -> bool:
+def is_removable(row: dict, sysfs_read_fn=None) -> bool:
     """Two independent checks must both agree the device is removable."""
+    if sysfs_read_fn is None:
+        # NOT `sysfs_read_fn=_sysfs_removable` as the parameter's default:
+        # a default value is bound once, at definition time, to whatever
+        # _sysfs_removable pointed to then - a test's
+        # monkeypatch.setattr(helper, "_sysfs_removable", ...) replaces
+        # the module-level name afterwards, but can't reach back into an
+        # already-captured default. Looking the bare name up here instead
+        # resolves it fresh from the module's globals on every call, so
+        # the monkeypatch is actually seen. This was invisible locally
+        # (a real removable device happens to be attached as /dev/sde on
+        # the dev machine, so the real, unmocked check "accidentally"
+        # agreed with the test) and only surfaced on a clean CI runner
+        # with no such device.
+        sysfs_read_fn = _sysfs_removable
     lsblk_says_removable = row.get("rm") is True
     sysfs_says_removable = sysfs_read_fn(row.get("pkname"))
     return lsblk_says_removable and sysfs_says_removable
